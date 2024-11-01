@@ -13,5 +13,6 @@ encoding_rs = "0.8.35"
 miette = { version = "7.2.0", features = ["fancy"] }
 num-bigint = "0.4.6"
 pyo3 = { version = "0.22.0", features = ["num-bigint"] }
+sugar_path = "1.2.0"
 thiserror = "1.0.64"
 unicode-xid = "0.2.6"

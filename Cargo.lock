@@ -67,6 +67,7 @@ dependencies = [
  "miette",
  "num-bigint",
  "pyo3",
+ "sugar_path",
  "thiserror",
  "unicode-xid",
 ]
@@ -342,6 +343,12 @@ name = "smawk"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7c388c1b5e93756d0c740965c41e8822f866621d41acbdf6336a6a168f8840c"
+
+[[package]]
+name = "sugar_path"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8230d5b8a65a6d4d4a7e5ee8dbdd9312ba447a8b8329689a390a0945d69b57ce"
 
 [[package]]
 name = "supports-color"
