@@ -5,6 +5,7 @@ use crate::lex::common::{
     lex_numeric, lex_text, lex_translated, lex_variable_argument, LexerError,
 };
 use crate::lex::tag::TagParts;
+use crate::lex::{END_TRANSLATE_LEN, QUOTE_LEN, START_TRANSLATE_LEN};
 
 #[derive(Debug, PartialEq)]
 pub enum UrlTokenType {
@@ -20,6 +21,33 @@ pub struct UrlToken {
     pub at: (usize, usize),
     pub token_type: UrlTokenType,
     pub kwarg: Option<(usize, usize)>,
+}
+
+impl<'t> UrlToken {
+    pub fn content_at(&self) -> (usize, usize) {
+        match self.token_type {
+            UrlTokenType::As => self.at,
+            UrlTokenType::Variable => self.at,
+            UrlTokenType::Numeric => self.at,
+            UrlTokenType::Text => {
+                let (start, len) = self.at;
+                let start = start + QUOTE_LEN;
+                let len = len - 2 * QUOTE_LEN;
+                (start, len)
+            }
+            UrlTokenType::TranslatedText => {
+                let (start, len) = self.at;
+                let start = start + START_TRANSLATE_LEN + QUOTE_LEN;
+                let len = len - START_TRANSLATE_LEN - END_TRANSLATE_LEN - 2 * QUOTE_LEN;
+                (start, len)
+            }
+        }
+    }
+
+    pub fn content(&self, template: &'t str) -> &'t str {
+        let (start, len) = self.content_at();
+        &template[start..start + len]
+    }
 }
 
 #[derive(Error, Debug, Diagnostic, PartialEq, Eq)]
