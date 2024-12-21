@@ -2,9 +2,11 @@ use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 use unicode_xid::UnicodeXID;
 
-const START_TRANSLATE_LEN: usize = 2;
-const END_TRANSLATE_LEN: usize = 1;
-const QUOTE_LEN: usize = 1;
+use crate::lex::common::{
+    check_variable_attrs, lex_numeric, lex_text, lex_translated, lex_variable_argument,
+    trim_variable, LexerError,
+};
+use crate::lex::{END_TRANSLATE_LEN, QUOTE_LEN, START_TRANSLATE_LEN};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ArgumentType {
@@ -78,26 +80,9 @@ pub enum VariableLexerError {
         #[label("here")]
         at: SourceSpan,
     },
-    #[error("Expected a complete string literal")]
-    IncompleteString {
-        #[label("here")]
-        at: SourceSpan,
-    },
-    #[error("Expected a complete translation string")]
-    IncompleteTranslatedString {
-        #[label("here")]
-        at: SourceSpan,
-    },
-    #[error("Expected a string literal within translation")]
-    MissingTranslatedString {
-        #[label("here")]
-        at: SourceSpan,
-    },
-    #[error("Could not parse the remainder")]
-    InvalidRemainder {
-        #[label("here")]
-        at: SourceSpan,
-    },
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    LexerError(#[from] LexerError),
     #[error("Expected a valid filter name")]
     InvalidFilterName {
         #[label("here")]
@@ -108,30 +93,6 @@ pub enum VariableLexerError {
         #[label("here")]
         at: SourceSpan,
     },
-}
-
-fn trim_variable(variable: &str) -> &str {
-    match variable.find(|c: char| !c.is_xid_continue() && c != '.') {
-        Some(end) => &variable[..end],
-        None => variable,
-    }
-}
-
-fn check_variable_attrs(variable: &str, start: usize) -> Result<(), VariableLexerError> {
-    let mut offset = 0;
-    for var in variable.split('.') {
-        match var.chars().next() {
-            Some(c) if c != '_' => {
-                offset += var.len() + 1;
-                continue;
-            }
-            _ => {
-                let at = (start + offset, var.len());
-                return Err(VariableLexerError::InvalidVariableName { at: at.into() });
-            }
-        }
-    }
-    Ok(())
 }
 
 pub fn lex_variable(
@@ -190,28 +151,18 @@ impl<'t> FilterLexer<'t> {
         chars: &mut std::str::Chars,
         end: char,
     ) -> Result<Argument, VariableLexerError> {
-        let mut count = 1;
-        loop {
-            let next = match chars.next() {
-                None => {
-                    let at = (self.byte, count);
-                    self.rest = "";
-                    return Err(VariableLexerError::IncompleteString { at: at.into() });
-                }
-                Some(c) => c,
-            };
-            count += 1;
-            if next == '\\' {
-                count += 1;
-                chars.next();
-            } else if next == end {
-                let at = (self.byte, count);
-                self.rest = &self.rest[count..];
-                self.byte += count;
-                return Ok(Argument {
+        match lex_text(self.byte, self.rest, chars, end) {
+            Ok((at, byte, rest)) => {
+                self.rest = rest;
+                self.byte = byte;
+                Ok(Argument {
                     argument_type: ArgumentType::Text,
                     at,
-                });
+                })
+            }
+            Err(e) => {
+                self.rest = "";
+                Err(e.into())
             }
         }
     }
@@ -220,55 +171,26 @@ impl<'t> FilterLexer<'t> {
         &mut self,
         chars: &mut std::str::Chars,
     ) -> Result<Argument, VariableLexerError> {
-        let start = self.byte;
-        self.byte += START_TRANSLATE_LEN;
-        self.rest = &self.rest[START_TRANSLATE_LEN..];
-        match chars.next() {
-            None => {
-                let at = (start, START_TRANSLATE_LEN);
-                self.rest = "";
-                return Err(VariableLexerError::MissingTranslatedString { at: at.into() });
-            }
-            Some('\'') => self.lex_text(chars, '\'')?,
-            Some('"') => self.lex_text(chars, '"')?,
-            _ => {
-                let at = (start, self.rest.len() + START_TRANSLATE_LEN);
-                self.rest = "";
-                return Err(VariableLexerError::MissingTranslatedString { at: at.into() });
-            }
-        };
-        match chars.next() {
-            Some(')') => {
-                self.byte += END_TRANSLATE_LEN;
-                self.rest = &self.rest[END_TRANSLATE_LEN..];
+        match lex_translated(self.byte, self.rest, chars) {
+            Ok((at, byte, rest)) => {
+                self.rest = rest;
+                self.byte = byte;
                 Ok(Argument {
                     argument_type: ArgumentType::TranslatedText,
-                    at: (start, self.byte - start),
+                    at,
                 })
             }
-            _ => {
-                let at = (start, self.byte - start);
+            Err(e) => {
                 self.rest = "";
-                Err(VariableLexerError::IncompleteTranslatedString { at: at.into() })
+                Err(e.into())
             }
         }
     }
 
     fn lex_numeric(&mut self) -> Argument {
-        let end = self
-            .rest
-            .find(|c: char| !(c.is_ascii_digit() || c == '-' || c == '.' || c == 'e'))
-            .unwrap_or(self.rest.len());
-        let content = &self.rest[..end];
-        // Match django bug
-        let end = match content[1..].find('-') {
-            Some(n) => n + 1,
-            None => end,
-        };
-        // End match django bug
-        self.rest = &self.rest[end..];
-        let at = (self.byte, end);
-        self.byte += end;
+        let (at, byte, rest) = lex_numeric(self.byte, self.rest);
+        self.rest = rest;
+        self.byte = byte;
         Argument {
             argument_type: ArgumentType::Numeric,
             at,
@@ -276,22 +198,20 @@ impl<'t> FilterLexer<'t> {
     }
 
     fn lex_variable_argument(&mut self) -> Result<Argument, VariableLexerError> {
-        let content = trim_variable(self.rest);
-        match check_variable_attrs(content, self.byte) {
-            Ok(()) => {}
+        match lex_variable_argument(self.byte, self.rest) {
+            Ok((at, byte, rest)) => {
+                self.byte = byte;
+                self.rest = rest;
+                Ok(Argument {
+                    argument_type: ArgumentType::Variable,
+                    at,
+                })
+            }
             Err(e) => {
                 self.rest = "";
-                return Err(e);
+                Err(e.into())
             }
-        };
-        let end = content.len();
-        let at = (self.byte, end);
-        self.byte += end;
-        self.rest = &self.rest[end..];
-        Ok(Argument {
-            argument_type: ArgumentType::Variable,
-            at,
-        })
+        }
     }
 
     fn lex_filter(&mut self) -> Result<FilterToken, VariableLexerError> {
@@ -369,7 +289,7 @@ impl<'t> FilterLexer<'t> {
             Some(n) => {
                 let at = (self.byte + n, remainder.trim().len());
                 self.rest = "";
-                Err(VariableLexerError::InvalidRemainder { at: at.into() })
+                Err(LexerError::InvalidRemainder { at: at.into() }.into())
             }
         }
     }
@@ -471,7 +391,7 @@ mod tests {
         let err = lex_variable(variable, START_TAG_LEN).unwrap_err();
         assert_eq!(
             err,
-            VariableLexerError::InvalidVariableName { at: (3, 4).into() }
+            LexerError::InvalidVariableName { at: (3, 4).into() }.into()
         );
     }
 
@@ -481,7 +401,7 @@ mod tests {
         let err = lex_variable(variable, START_TAG_LEN).unwrap_err();
         assert_eq!(
             err,
-            VariableLexerError::InvalidVariableName { at: (7, 4).into() }
+            LexerError::InvalidVariableName { at: (7, 4).into() }.into()
         );
     }
 
@@ -503,7 +423,7 @@ mod tests {
         let err = lex_variable(variable, START_TAG_LEN).unwrap_err();
         assert_eq!(
             err,
-            VariableLexerError::InvalidVariableName { at: (7, 0).into() }
+            LexerError::InvalidVariableName { at: (7, 0).into() }.into()
         );
     }
 
@@ -556,9 +476,9 @@ mod tests {
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(
             tokens,
-            vec![Err(VariableLexerError::InvalidRemainder {
-                at: (16, 5).into()
-            })]
+            vec![Err(
+                LexerError::InvalidRemainder { at: (16, 5).into() }.into()
+            )]
         );
     }
 
@@ -742,7 +662,7 @@ mod tests {
         assert_eq!(
             tokens,
             vec![
-                Err(VariableLexerError::InvalidRemainder { at: (23, 2).into() }),
+                Err(LexerError::InvalidRemainder { at: (23, 2).into() }.into()),
                 /* When fixed we can do:
                 Ok(FilterToken {
                     argument: Some(Argument {
@@ -866,12 +786,8 @@ mod tests {
         let variable = trim_variable(template);
         let (_token, lexer) = lex_variable(variable, START_TAG_LEN).unwrap().unwrap();
         let tokens: Vec<_> = lexer.collect();
-        assert_eq!(
-            tokens,
-            vec![Err(VariableLexerError::IncompleteString {
-                at: (19, 4).into()
-            })]
-        );
+        let error = LexerError::IncompleteString { at: (19, 4).into() };
+        assert_eq!(tokens, vec![Err(error.into())]);
     }
 
     #[test]
@@ -880,12 +796,8 @@ mod tests {
         let variable = trim_variable(template);
         let (_token, lexer) = lex_variable(variable, START_TAG_LEN).unwrap().unwrap();
         let tokens: Vec<_> = lexer.collect();
-        assert_eq!(
-            tokens,
-            vec![Err(VariableLexerError::IncompleteTranslatedString {
-                at: (19, 7).into()
-            })]
-        );
+        let error = LexerError::IncompleteTranslatedString { at: (19, 7).into() };
+        assert_eq!(tokens, vec![Err(error.into())]);
     }
 
     #[test]
@@ -894,12 +806,8 @@ mod tests {
         let variable = trim_variable(template);
         let (_token, lexer) = lex_variable(variable, START_TAG_LEN).unwrap().unwrap();
         let tokens: Vec<_> = lexer.collect();
-        assert_eq!(
-            tokens,
-            vec![Err(VariableLexerError::IncompleteString {
-                at: (21, 4).into()
-            })]
-        );
+        let error = LexerError::IncompleteString { at: (21, 4).into() };
+        assert_eq!(tokens, vec![Err(error.into())]);
     }
 
     #[test]
@@ -908,12 +816,8 @@ mod tests {
         let variable = trim_variable(template);
         let (_token, lexer) = lex_variable(variable, START_TAG_LEN).unwrap().unwrap();
         let tokens: Vec<_> = lexer.collect();
-        assert_eq!(
-            tokens,
-            vec![Err(VariableLexerError::IncompleteString {
-                at: (21, 4).into()
-            })]
-        );
+        let error = LexerError::IncompleteString { at: (21, 4).into() };
+        assert_eq!(tokens, vec![Err(error.into())]);
     }
 
     #[test]
@@ -922,12 +826,8 @@ mod tests {
         let variable = trim_variable(template);
         let (_token, lexer) = lex_variable(variable, START_TAG_LEN).unwrap().unwrap();
         let tokens: Vec<_> = lexer.collect();
-        assert_eq!(
-            tokens,
-            vec![Err(VariableLexerError::MissingTranslatedString {
-                at: (19, 2).into()
-            })]
-        );
+        let error = LexerError::MissingTranslatedString { at: (19, 2).into() };
+        assert_eq!(tokens, vec![Err(error.into())]);
     }
 
     #[test]
@@ -936,12 +836,8 @@ mod tests {
         let variable = trim_variable(template);
         let (_token, lexer) = lex_variable(variable, START_TAG_LEN).unwrap().unwrap();
         let tokens: Vec<_> = lexer.collect();
-        assert_eq!(
-            tokens,
-            vec![Err(VariableLexerError::MissingTranslatedString {
-                at: (19, 6).into()
-            })]
-        );
+        let error = LexerError::MissingTranslatedString { at: (19, 6).into() };
+        assert_eq!(tokens, vec![Err(error.into())]);
     }
 
     #[test]
@@ -952,9 +848,9 @@ mod tests {
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(
             tokens,
-            vec![Err(VariableLexerError::InvalidRemainder {
-                at: (25, 5).into()
-            })]
+            vec![Err(
+                LexerError::InvalidRemainder { at: (25, 5).into() }.into()
+            )]
         );
     }
 
@@ -966,9 +862,9 @@ mod tests {
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(
             tokens,
-            vec![Err(VariableLexerError::InvalidRemainder {
-                at: (25, 5).into()
-            })]
+            vec![Err(
+                LexerError::InvalidRemainder { at: (25, 5).into() }.into()
+            )]
         );
     }
 }
