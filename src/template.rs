@@ -179,7 +179,7 @@ pub mod django_rusty_templates {
 
         #[allow(clippy::wrong_self_convention)] // We're implementing a Django interface
         pub fn from_string(&self, template_code: Bound<'_, PyString>) -> PyResult<Template> {
-            Template::new_from_string(template_code.extract()?, &self.data)
+            Template::new_from_string(template_code.py(), template_code.extract()?, &self.data)
         }
     }
 
@@ -193,8 +193,8 @@ pub mod django_rusty_templates {
     }
 
     impl Template {
-        pub fn new(template: &str, filename: PathBuf, engine_data: &EngineData) -> PyResult<Self> {
-            let mut parser = Parser::new(TemplateString(template));
+        pub fn new(py: Python<'_>, template: &str, filename: PathBuf, engine_data: &EngineData) -> PyResult<Self> {
+            let mut parser = Parser::new(py, TemplateString(template));
             let nodes = match parser.parse() {
                 Ok(nodes) => nodes,
                 Err(err) => {
@@ -212,8 +212,8 @@ pub mod django_rusty_templates {
             })
         }
 
-        pub fn new_from_string(template: String, engine_data: &EngineData) -> PyResult<Self> {
-            let mut parser = Parser::new(TemplateString(&template));
+        pub fn new_from_string(py: Python<'_>, template: String, engine_data: &EngineData) -> PyResult<Self> {
+            let mut parser = Parser::new(py, TemplateString(&template));
             let nodes = match parser.parse() {
                 Ok(nodes) => nodes,
                 Err(err) => {
@@ -285,7 +285,7 @@ mod tests {
     fn test_syntax_error() {
         pyo3::prepare_freethreaded_python();
 
-        Python::with_gil(|_py| {
+        Python::with_gil(|py| {
             let mut filename = std::env::current_dir().unwrap();
             filename.push("tests");
             filename.push("templates");
@@ -305,7 +305,7 @@ mod tests {
             let engine = EngineData::empty();
             let template_string = std::fs::read_to_string(&filename).unwrap();
             let error = temp_env::with_var("NO_COLOR", Some("1"), || {
-                Template::new(&template_string, filename, &engine).unwrap_err()
+                Template::new(py, &template_string, filename, &engine).unwrap_err()
             });
 
             let error_string = format!("{error}");
@@ -317,11 +317,11 @@ mod tests {
     fn test_syntax_error_from_string() {
         pyo3::prepare_freethreaded_python();
 
-        Python::with_gil(|_py| {
+        Python::with_gil(|py| {
             let engine = EngineData::empty();
             let template_string = "{{ foo.bar|title'foo' }}".to_string();
             let error = temp_env::with_var("NO_COLOR", Some("1"), || {
-                Template::new_from_string(template_string, &engine).unwrap_err()
+                Template::new_from_string(py, template_string, &engine).unwrap_err()
             });
 
             let expected = "TemplateSyntaxError: \n  × Could not parse the remainder
@@ -344,7 +344,7 @@ mod tests {
         Python::with_gil(|py| {
             let engine = EngineData::empty();
             let template_string = "".to_string();
-            let template = Template::new_from_string(template_string, &engine).unwrap();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
             let context = PyDict::new(py);
 
             assert_eq!(template.render(py, Some(context), None).unwrap(), "");
@@ -358,7 +358,7 @@ mod tests {
         Python::with_gil(|py| {
             let engine = EngineData::empty();
             let template_string = "Hello {{ user }}!".to_string();
-            let template = Template::new_from_string(template_string, &engine).unwrap();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
             let context = PyDict::new(py);
             context.set_item("user", "Lily").unwrap();
 
@@ -376,7 +376,7 @@ mod tests {
         Python::with_gil(|py| {
             let engine = EngineData::empty();
             let template_string = "Hello {{ user }}!".to_string();
-            let template = Template::new_from_string(template_string, &engine).unwrap();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
             let context = PyDict::new(py);
 
             assert_eq!(template.render(py, Some(context), None).unwrap(), "Hello !");
@@ -390,7 +390,7 @@ mod tests {
         Python::with_gil(|py| {
             let engine = EngineData::empty();
             let template_string = "Hello {{ user.profile.names.0 }}!".to_string();
-            let template = Template::new_from_string(template_string, &engine).unwrap();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
             let locals = PyDict::new(py);
             py.run(
                 cr#"

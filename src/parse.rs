@@ -433,14 +433,16 @@ impl PyParseError {
 }
 
 pub struct Parser<'t, 'py> {
+    py: Python<'py>,
     template: TemplateString<'t>,
     lexer: Lexer<'t>,
     external_filters: HashMap<String, Bound<'py, PyAny>>,
 }
 
 impl<'t, 'py> Parser<'t, 'py> {
-    pub fn new(template: TemplateString<'t>) -> Self {
+    pub fn new(py: Python<'py>, template: TemplateString<'t>) -> Self {
         Self {
+            py,
             template,
             lexer: Lexer::new(template),
             external_filters: HashMap::new(),
@@ -449,10 +451,12 @@ impl<'t, 'py> Parser<'t, 'py> {
 
     #[cfg(test)]
     fn new_with_filters(
+        py: Python<'py>,
         template: TemplateString<'t>,
         external_filters: HashMap<String, Bound<'py, PyAny>>,
     ) -> Self {
         Self {
+            py,
             template,
             lexer: Lexer::new(template),
             external_filters,
@@ -589,60 +593,84 @@ mod tests {
 
     #[test]
     fn test_empty_template() {
-        let template = "";
-        let mut parser = Parser::new(template.into());
-        let nodes = parser.parse().unwrap();
-        assert_eq!(nodes, vec![]);
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let template = "";
+            let mut parser = Parser::new(py, template.into());
+            let nodes = parser.parse().unwrap();
+            assert_eq!(nodes, vec![]);
+        })
     }
 
     #[test]
     fn test_text() {
-        let template = "Some text";
-        let template_string = TemplateString(template);
-        let mut parser = Parser::new(template_string);
-        let nodes = parser.parse().unwrap();
-        let text = Text::new((0, template.len()));
-        assert_eq!(nodes, vec![TokenTree::Text(text)]);
-        assert_eq!(template_string.content(text.at), template);
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let template = "Some text";
+            let template_string = TemplateString(template);
+            let mut parser = Parser::new(py, template_string);
+            let nodes = parser.parse().unwrap();
+            let text = Text::new((0, template.len()));
+            assert_eq!(nodes, vec![TokenTree::Text(text)]);
+            assert_eq!(template_string.content(text.at), template);
+        })
     }
 
     #[test]
     fn test_comment() {
-        let template = "{# A commment #}";
-        let mut parser = Parser::new(template.into());
-        let nodes = parser.parse().unwrap();
-        assert_eq!(nodes, vec![]);
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let template = "{# A commment #}";
+            let mut parser = Parser::new(py, template.into());
+            let nodes = parser.parse().unwrap();
+            assert_eq!(nodes, vec![]);
+        })
     }
 
     #[test]
     fn test_empty_variable() {
-        let template = "{{ }}";
-        let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err().unwrap_parse_error();
-        assert_eq!(error, ParseError::EmptyVariable { at: (0, 5).into() });
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let template = "{{ }}";
+            let mut parser = Parser::new(py, template.into());
+            let error = parser.parse().unwrap_err().unwrap_parse_error();
+            assert_eq!(error, ParseError::EmptyVariable { at: (0, 5).into() });
+        })
     }
 
     #[test]
     fn test_variable() {
-        let template = TemplateString("{{ foo }}");
-        let mut parser = Parser::new(template);
-        let nodes = parser.parse().unwrap();
-        let variable = Variable { at: (3, 3) };
-        assert_eq!(nodes, vec![TokenTree::Variable(variable)]);
-        assert_eq!(variable.parts(template).collect::<Vec<_>>(), vec!["foo"]);
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let template = TemplateString("{{ foo }}");
+            let mut parser = Parser::new(py, template);
+            let nodes = parser.parse().unwrap();
+            let variable = Variable { at: (3, 3) };
+            assert_eq!(nodes, vec![TokenTree::Variable(variable)]);
+            assert_eq!(variable.parts(template).collect::<Vec<_>>(), vec!["foo"]);
+        })
     }
 
     #[test]
     fn test_variable_attribute() {
-        let template = TemplateString("{{ foo.bar.baz }}");
-        let mut parser = Parser::new(template);
-        let nodes = parser.parse().unwrap();
-        let variable = Variable { at: (3, 11) };
-        assert_eq!(nodes, vec![TokenTree::Variable(variable)]);
-        assert_eq!(
-            variable.parts(template).collect::<Vec<_>>(),
-            vec!["foo", "bar", "baz"]
-        );
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let template = TemplateString("{{ foo.bar.baz }}");
+            let mut parser = Parser::new(py, template);
+            let nodes = parser.parse().unwrap();
+            let variable = Variable { at: (3, 11) };
+            assert_eq!(nodes, vec![TokenTree::Variable(variable)]);
+            assert_eq!(
+                variable.parts(template).collect::<Vec<_>>(),
+                vec!["foo", "bar", "baz"]
+            );
+        })
     }
 
     #[test]
@@ -652,7 +680,7 @@ mod tests {
         Python::with_gil(|py| {
             let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = TemplateString("{{ foo|bar }}");
-            let mut parser = Parser::new_with_filters(template, filters);
+            let mut parser = Parser::new_with_filters(py, template, filters);
             let nodes = parser.parse().unwrap();
 
             let foo = Variable { at: (3, 3) };
@@ -668,16 +696,20 @@ mod tests {
 
     #[test]
     fn test_unknown_filter() {
-        let template = TemplateString("{{ foo|bar }}");
-        let mut parser = Parser::new(template);
-        let error = parser.parse().unwrap_err().unwrap_parse_error();
-        assert_eq!(
-            error,
-            ParseError::InvalidFilter {
-                filter: "bar".to_string(),
-                at: (7, 3).into()
-            }
-        );
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let template = TemplateString("{{ foo|bar }}");
+            let mut parser = Parser::new(py, template);
+            let error = parser.parse().unwrap_err().unwrap_parse_error();
+            assert_eq!(
+                error,
+                ParseError::InvalidFilter {
+                    filter: "bar".to_string(),
+                    at: (7, 3).into()
+                }
+            );
+        })
     }
 
     #[test]
@@ -690,7 +722,7 @@ mod tests {
                 ("bar".to_string(), py.None().bind(py).clone()),
                 ("baz".to_string(), py.None().bind(py).clone()),
             ]);
-            let mut parser = Parser::new_with_filters(template.into(), filters);
+            let mut parser = Parser::new_with_filters(py, template.into(), filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -715,7 +747,7 @@ mod tests {
         Python::with_gil(|py| {
             let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = TemplateString("{{ foo|bar:baz }}");
-            let mut parser = Parser::new_with_filters(template, filters);
+            let mut parser = Parser::new_with_filters(py, template, filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -743,7 +775,7 @@ mod tests {
         Python::with_gil(|py| {
             let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = TemplateString("{{ foo|bar:'baz' }}");
-            let mut parser = Parser::new_with_filters(template, filters);
+            let mut parser = Parser::new_with_filters(py, template, filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -771,7 +803,7 @@ mod tests {
         Python::with_gil(|py| {
             let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = TemplateString("{{ foo|bar:_('baz') }}");
-            let mut parser = Parser::new_with_filters(template, filters);
+            let mut parser = Parser::new_with_filters(py, template, filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -799,7 +831,7 @@ mod tests {
         Python::with_gil(|py| {
             let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = "{{ foo|bar:5.2e3 }}";
-            let mut parser = Parser::new_with_filters(template.into(), filters);
+            let mut parser = Parser::new_with_filters(py, template.into(), filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -823,7 +855,7 @@ mod tests {
         Python::with_gil(|py| {
             let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = "{{ foo|bar:99 }}";
-            let mut parser = Parser::new_with_filters(template.into(), filters);
+            let mut parser = Parser::new_with_filters(py, template.into(), filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -847,7 +879,7 @@ mod tests {
         Python::with_gil(|py| {
             let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = "{{ foo|bar:99999999999999999 }}";
-            let mut parser = Parser::new_with_filters(template.into(), filters);
+            let mut parser = Parser::new_with_filters(py, template.into(), filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -866,294 +898,376 @@ mod tests {
 
     #[test]
     fn test_filter_argument_invalid_number() {
-        let template = "{{ foo|bar:9.9.9 }}";
-        let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err().unwrap_parse_error();
-        assert_eq!(error, ParseError::InvalidNumber { at: (11, 5).into() });
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let template = "{{ foo|bar:9.9.9 }}";
+            let mut parser = Parser::new(py, template.into());
+            let error = parser.parse().unwrap_err().unwrap_parse_error();
+            assert_eq!(error, ParseError::InvalidNumber { at: (11, 5).into() });
+        })
     }
 
     #[test]
     fn test_filter_default() {
-        let template = TemplateString("{{ foo|default:baz }}");
-        let mut parser = Parser::new(template);
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let foo = TagElement::Variable(Variable { at: (3, 3) });
-        let baz = Variable { at: (15, 3) };
-        let bar = TokenTree::Filter(Box::new(Filter {
-            at: (7, 7),
-            left: foo,
-            filter: FilterType::Default(Argument {
-                at: (15, 3),
-                argument_type: ArgumentType::Variable(baz),
-            }),
-        }));
-        assert_eq!(nodes, vec![bar]);
-        assert_eq!(baz.parts(template).collect::<Vec<_>>(), vec!["baz"]);
+        Python::with_gil(|py| {
+            let template = TemplateString("{{ foo|default:baz }}");
+            let mut parser = Parser::new(py, template);
+            let nodes = parser.parse().unwrap();
+
+            let foo = TagElement::Variable(Variable { at: (3, 3) });
+            let baz = Variable { at: (15, 3) };
+            let bar = TokenTree::Filter(Box::new(Filter {
+                at: (7, 7),
+                left: foo,
+                filter: FilterType::Default(Argument {
+                    at: (15, 3),
+                    argument_type: ArgumentType::Variable(baz),
+                }),
+            }));
+            assert_eq!(nodes, vec![bar]);
+            assert_eq!(baz.parts(template).collect::<Vec<_>>(), vec!["baz"]);
+        })
     }
 
     #[test]
     fn test_filter_default_missing_argument() {
-        let template = "{{ foo|default|baz }}";
-        let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err().unwrap_parse_error();
-        assert_eq!(error, ParseError::MissingArgument { at: (7, 7).into() });
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let template = "{{ foo|default|baz }}";
+            let mut parser = Parser::new(py, template.into());
+            let error = parser.parse().unwrap_err().unwrap_parse_error();
+            assert_eq!(error, ParseError::MissingArgument { at: (7, 7).into() });
+        })
     }
 
     #[test]
     fn test_filter_lower_unexpected_argument() {
-        let template = "{{ foo|lower:baz }}";
-        let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err().unwrap_parse_error();
-        assert_eq!(error, ParseError::UnexpectedArgument { at: (13, 3).into() });
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let template = "{{ foo|lower:baz }}";
+            let mut parser = Parser::new(py, template.into());
+            let error = parser.parse().unwrap_err().unwrap_parse_error();
+            assert_eq!(error, ParseError::UnexpectedArgument { at: (13, 3).into() });
+        })
     }
 
     #[test]
     fn test_variable_lexer_error() {
-        let template = "{{ _foo }}";
-        let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err().unwrap_parse_error();
-        assert_eq!(
-            error,
-            ParseError::VariableError(LexerError::InvalidVariableName { at: (3, 4).into() }.into())
-        );
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let template = "{{ _foo }}";
+            let mut parser = Parser::new(py, template.into());
+            let error = parser.parse().unwrap_err().unwrap_parse_error();
+            assert_eq!(
+                error,
+                ParseError::VariableError(
+                    LexerError::InvalidVariableName { at: (3, 4).into() }.into()
+                )
+            );
+        })
     }
 
     #[test]
     fn test_parse_empty_tag() {
-        let template = "{%  %}";
-        let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err().unwrap_parse_error();
-        assert_eq!(error, ParseError::EmptyTag { at: (0, 6).into() });
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let template = "{%  %}";
+            let mut parser = Parser::new(py, template.into());
+            let error = parser.parse().unwrap_err().unwrap_parse_error();
+            assert_eq!(error, ParseError::EmptyTag { at: (0, 6).into() });
+        })
     }
 
     #[test]
     fn test_block_error() {
-        let template = "{% url'foo' %}";
-        let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err().unwrap_parse_error();
-        assert_eq!(
-            error,
-            ParseError::BlockError(TagLexerError::InvalidTagName { at: (3, 8).into() })
-        );
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let template = "{% url'foo' %}";
+            let mut parser = Parser::new(py, template.into());
+            let error = parser.parse().unwrap_err().unwrap_parse_error();
+            assert_eq!(
+                error,
+                ParseError::BlockError(TagLexerError::InvalidTagName { at: (3, 8).into() })
+            );
+        })
     }
 
     #[test]
     fn test_parse_url_tag() {
-        let template = "{% url 'some-url-name' %}";
-        let mut parser = Parser::new(template.into());
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let url = TokenTree::Tag(Tag::Url(Url {
-            view_name: TagElement::Text(Text { at: (8, 13) }),
-            args: vec![],
-            kwargs: vec![],
-            variable: None,
-        }));
+        Python::with_gil(|py| {
+            let template = "{% url 'some-url-name' %}";
+            let mut parser = Parser::new(py, template.into());
+            let nodes = parser.parse().unwrap();
 
-        assert_eq!(nodes, vec![url]);
+            let url = TokenTree::Tag(Tag::Url(Url {
+                view_name: TagElement::Text(Text { at: (8, 13) }),
+                args: vec![],
+                kwargs: vec![],
+                variable: None,
+            }));
+
+            assert_eq!(nodes, vec![url]);
+        })
     }
 
     #[test]
     fn test_parse_url_tag_view_name_translated() {
-        let template = "{% url _('some-url-name') %}";
-        let mut parser = Parser::new(template.into());
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let url = TokenTree::Tag(Tag::Url(Url {
-            view_name: TagElement::TranslatedText(Text { at: (10, 13) }),
-            args: vec![],
-            kwargs: vec![],
-            variable: None,
-        }));
+        Python::with_gil(|py| {
+            let template = "{% url _('some-url-name') %}";
+            let mut parser = Parser::new(py, template.into());
+            let nodes = parser.parse().unwrap();
 
-        assert_eq!(nodes, vec![url]);
+            let url = TokenTree::Tag(Tag::Url(Url {
+                view_name: TagElement::TranslatedText(Text { at: (10, 13) }),
+                args: vec![],
+                kwargs: vec![],
+                variable: None,
+            }));
+
+            assert_eq!(nodes, vec![url]);
+        })
     }
 
     #[test]
     fn test_parse_url_tag_view_name_variable() {
-        let template = "{% url some_view_name %}";
-        let mut parser = Parser::new(template.into());
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let url = TokenTree::Tag(Tag::Url(Url {
-            view_name: TagElement::Variable(Variable { at: (7, 14) }),
-            args: vec![],
-            kwargs: vec![],
-            variable: None,
-        }));
+        Python::with_gil(|py| {
+            let template = "{% url some_view_name %}";
+            let mut parser = Parser::new(py, template.into());
+            let nodes = parser.parse().unwrap();
 
-        assert_eq!(nodes, vec![url]);
+            let url = TokenTree::Tag(Tag::Url(Url {
+                view_name: TagElement::Variable(Variable { at: (7, 14) }),
+                args: vec![],
+                kwargs: vec![],
+                variable: None,
+            }));
+
+            assert_eq!(nodes, vec![url]);
+        })
     }
 
     #[test]
     fn test_parse_url_tag_view_name_filter() {
-        let template = "{% url some_view_name|default:'home' %}";
-        let mut parser = Parser::new(template.into());
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let some_view_name = TagElement::Variable(Variable { at: (7, 14) });
-        let home = Text { at: (31, 4) };
-        let default = Box::new(Filter {
-            at: (22, 7),
-            left: some_view_name,
-            filter: FilterType::Default(Argument {
-                at: (30, 6),
-                argument_type: ArgumentType::Text(home),
-            }),
-        });
-        let url = TokenTree::Tag(Tag::Url(Url {
-            view_name: TagElement::Filter(default),
-            args: vec![],
-            kwargs: vec![],
-            variable: None,
-        }));
+        Python::with_gil(|py| {
+            let template = "{% url some_view_name|default:'home' %}";
+            let mut parser = Parser::new(py, template.into());
+            let nodes = parser.parse().unwrap();
 
-        assert_eq!(nodes, vec![url]);
+            let some_view_name = TagElement::Variable(Variable { at: (7, 14) });
+            let home = Text { at: (31, 4) };
+            let default = Box::new(Filter {
+                at: (22, 7),
+                left: some_view_name,
+                filter: FilterType::Default(Argument {
+                    at: (30, 6),
+                    argument_type: ArgumentType::Text(home),
+                }),
+            });
+            let url = TokenTree::Tag(Tag::Url(Url {
+                view_name: TagElement::Filter(default),
+                args: vec![],
+                kwargs: vec![],
+                variable: None,
+            }));
+
+            assert_eq!(nodes, vec![url]);
+        })
     }
 
     #[test]
     fn test_parse_url_no_arguments() {
-        let template = "{% url %}";
-        let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err().unwrap_parse_error();
-        assert_eq!(error, ParseError::UrlTagNoArguments { at: (0, 9).into() });
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let template = "{% url %}";
+            let mut parser = Parser::new(py, template.into());
+            let error = parser.parse().unwrap_err().unwrap_parse_error();
+            assert_eq!(error, ParseError::UrlTagNoArguments { at: (0, 9).into() });
+        })
     }
 
     #[test]
     fn test_parse_url_view_name_integer() {
-        let template = "{% url 64 %}";
-        let mut parser = Parser::new(template.into());
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let url = TokenTree::Tag(Tag::Url(Url {
-            view_name: TagElement::Int(64.into()),
-            args: vec![],
-            kwargs: vec![],
-            variable: None,
-        }));
+        Python::with_gil(|py| {
+            let template = "{% url 64 %}";
+            let mut parser = Parser::new(py, template.into());
+            let nodes = parser.parse().unwrap();
 
-        assert_eq!(nodes, vec![url]);
+            let url = TokenTree::Tag(Tag::Url(Url {
+                view_name: TagElement::Int(64.into()),
+                args: vec![],
+                kwargs: vec![],
+                variable: None,
+            }));
+
+            assert_eq!(nodes, vec![url]);
+        })
     }
 
     #[test]
     fn test_parse_url_tag_arguments() {
-        let template = "{% url some_view_name 'foo' bar|default:'home' 64 5.7 _(\"spam\") %}";
-        let mut parser = Parser::new(template.into());
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let url = TokenTree::Tag(Tag::Url(Url {
-            view_name: TagElement::Variable(Variable { at: (7, 14) }),
-            args: vec![
-                TagElement::Text(Text { at: (23, 3) }),
-                TagElement::Filter(Box::new(Filter {
-                    at: (32, 7),
-                    left: TagElement::Variable(Variable { at: (28, 3) }),
-                    filter: FilterType::Default(Argument {
-                        at: (40, 6),
-                        argument_type: ArgumentType::Text(Text { at: (41, 4) }),
-                    }),
-                })),
-                TagElement::Int(64.into()),
-                TagElement::Float(5.7),
-                TagElement::TranslatedText(Text { at: (57, 4) }),
-            ],
-            kwargs: vec![],
-            variable: None,
-        }));
+        Python::with_gil(|py| {
+            let template = "{% url some_view_name 'foo' bar|default:'home' 64 5.7 _(\"spam\") %}";
+            let mut parser = Parser::new(py, template.into());
+            let nodes = parser.parse().unwrap();
 
-        assert_eq!(nodes, vec![url]);
+            let url = TokenTree::Tag(Tag::Url(Url {
+                view_name: TagElement::Variable(Variable { at: (7, 14) }),
+                args: vec![
+                    TagElement::Text(Text { at: (23, 3) }),
+                    TagElement::Filter(Box::new(Filter {
+                        at: (32, 7),
+                        left: TagElement::Variable(Variable { at: (28, 3) }),
+                        filter: FilterType::Default(Argument {
+                            at: (40, 6),
+                            argument_type: ArgumentType::Text(Text { at: (41, 4) }),
+                        }),
+                    })),
+                    TagElement::Int(64.into()),
+                    TagElement::Float(5.7),
+                    TagElement::TranslatedText(Text { at: (57, 4) }),
+                ],
+                kwargs: vec![],
+                variable: None,
+            }));
+
+            assert_eq!(nodes, vec![url]);
+        })
     }
 
     #[test]
     fn test_parse_url_tag_kwargs() {
-        let template = "{% url some_view_name foo='foo' extra=-64 %}";
-        let mut parser = Parser::new(template.into());
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let url = TokenTree::Tag(Tag::Url(Url {
-            view_name: TagElement::Variable(Variable { at: (7, 14) }),
-            args: vec![],
-            kwargs: vec![
-                ("foo".to_string(), TagElement::Text(Text { at: (27, 3) })),
-                ("extra".to_string(), TagElement::Int((-64).into())),
-            ],
-            variable: None,
-        }));
+        Python::with_gil(|py| {
+            let template = "{% url some_view_name foo='foo' extra=-64 %}";
+            let mut parser = Parser::new(py, template.into());
+            let nodes = parser.parse().unwrap();
 
-        assert_eq!(nodes, vec![url]);
+            let url = TokenTree::Tag(Tag::Url(Url {
+                view_name: TagElement::Variable(Variable { at: (7, 14) }),
+                args: vec![],
+                kwargs: vec![
+                    ("foo".to_string(), TagElement::Text(Text { at: (27, 3) })),
+                    ("extra".to_string(), TagElement::Int((-64).into())),
+                ],
+                variable: None,
+            }));
+
+            assert_eq!(nodes, vec![url]);
+        })
     }
 
     #[test]
     fn test_parse_url_tag_arguments_as_variable() {
-        let template = "{% url some_view_name 'foo' as some_url %}";
-        let mut parser = Parser::new(template.into());
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let url = TokenTree::Tag(Tag::Url(Url {
-            view_name: TagElement::Variable(Variable { at: (7, 14) }),
-            args: vec![TagElement::Text(Text { at: (23, 3) })],
-            kwargs: vec![],
-            variable: Some("some_url".to_string()),
-        }));
+        Python::with_gil(|py| {
+            let template = "{% url some_view_name 'foo' as some_url %}";
+            let mut parser = Parser::new(py, template.into());
+            let nodes = parser.parse().unwrap();
 
-        assert_eq!(nodes, vec![url]);
+            let url = TokenTree::Tag(Tag::Url(Url {
+                view_name: TagElement::Variable(Variable { at: (7, 14) }),
+                args: vec![TagElement::Text(Text { at: (23, 3) })],
+                kwargs: vec![],
+                variable: Some("some_url".to_string()),
+            }));
+
+            assert_eq!(nodes, vec![url]);
+        })
     }
 
     #[test]
     fn test_parse_url_tag_kwargs_as_variable() {
-        let template = "{% url some_view_name foo='foo' as some_url %}";
-        let mut parser = Parser::new(template.into());
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let url = TokenTree::Tag(Tag::Url(Url {
-            view_name: TagElement::Variable(Variable { at: (7, 14) }),
-            args: vec![],
-            kwargs: vec![("foo".to_string(), TagElement::Text(Text { at: (27, 3) }))],
-            variable: Some("some_url".to_string()),
-        }));
+        Python::with_gil(|py| {
+            let template = "{% url some_view_name foo='foo' as some_url %}";
+            let mut parser = Parser::new(py, template.into());
+            let nodes = parser.parse().unwrap();
 
-        assert_eq!(nodes, vec![url]);
+            let url = TokenTree::Tag(Tag::Url(Url {
+                view_name: TagElement::Variable(Variable { at: (7, 14) }),
+                args: vec![],
+                kwargs: vec![("foo".to_string(), TagElement::Text(Text { at: (27, 3) }))],
+                variable: Some("some_url".to_string()),
+            }));
+
+            assert_eq!(nodes, vec![url]);
+        })
     }
 
     #[test]
     fn test_parse_url_tag_arguments_last_variables() {
-        let template = "{% url some_view_name 'foo' arg arg2 %}";
-        let mut parser = Parser::new(template.into());
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let url = TokenTree::Tag(Tag::Url(Url {
-            view_name: TagElement::Variable(Variable { at: (7, 14) }),
-            args: vec![
-                TagElement::Text(Text { at: (23, 3) }),
-                TagElement::Variable(Variable { at: (28, 3) }),
-                TagElement::Variable(Variable { at: (32, 4) }),
-            ],
-            kwargs: vec![],
-            variable: None,
-        }));
+        Python::with_gil(|py| {
+            let template = "{% url some_view_name 'foo' arg arg2 %}";
+            let mut parser = Parser::new(py, template.into());
+            let nodes = parser.parse().unwrap();
 
-        assert_eq!(nodes, vec![url]);
+            let url = TokenTree::Tag(Tag::Url(Url {
+                view_name: TagElement::Variable(Variable { at: (7, 14) }),
+                args: vec![
+                    TagElement::Text(Text { at: (23, 3) }),
+                    TagElement::Variable(Variable { at: (28, 3) }),
+                    TagElement::Variable(Variable { at: (32, 4) }),
+                ],
+                kwargs: vec![],
+                variable: None,
+            }));
+
+            assert_eq!(nodes, vec![url]);
+        })
     }
 
     #[test]
     fn test_parse_url_tag_mixed_args_kwargs() {
-        let template = "{% url some_view_name 'foo' arg name=arg2 %}";
-        let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err().unwrap_parse_error();
-        assert_eq!(
-            error,
-            ParseError::MixedArgsKwargs {
-                at: (0, template.len()).into()
-            }
-        );
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let template = "{% url some_view_name 'foo' arg name=arg2 %}";
+            let mut parser = Parser::new(py, template.into());
+            let error = parser.parse().unwrap_err().unwrap_parse_error();
+            assert_eq!(
+                error,
+                ParseError::MixedArgsKwargs {
+                    at: (0, template.len()).into()
+                }
+            );
+        })
     }
 
     #[test]
     fn test_parse_url_tag_invalid_number() {
-        let template = "{% url foo 9.9.9 %}";
-        let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err().unwrap_parse_error();
-        assert_eq!(error, ParseError::InvalidNumber { at: (11, 5).into() });
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let template = "{% url foo 9.9.9 %}";
+            let mut parser = Parser::new(py, template.into());
+            let error = parser.parse().unwrap_err().unwrap_parse_error();
+            assert_eq!(error, ParseError::InvalidNumber { at: (11, 5).into() });
+        })
     }
 }

@@ -46,7 +46,7 @@ impl FileSystemLoader {
 
     fn get_template(
         &self,
-        _py: Python<'_>,
+        py: Python<'_>,
         template_name: &str,
         engine: &EngineData,
     ) -> Result<PyResult<Template>, LoaderError> {
@@ -73,7 +73,7 @@ impl FileSystemLoader {
                     encoding.name()
                 ))));
             }
-            return Ok(Template::new(&contents, path, engine));
+            return Ok(Template::new(py, &contents, path, engine));
         }
         Err(LoaderError { tried })
     }
@@ -147,12 +147,13 @@ impl LocMemLoader {
 
     fn get_template(
         &self,
-        _py: Python<'_>,
+        py: Python<'_>,
         template_name: &str,
         engine: &EngineData,
     ) -> Result<PyResult<Template>, LoaderError> {
         if let Some(contents) = self.templates.get(template_name) {
             Ok(Template::new(
+                py,
                 contents,
                 PathBuf::from(template_name),
                 engine,
