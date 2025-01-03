@@ -148,7 +148,7 @@ impl PyEq for FilterType {
 
 #[derive(Debug, PartialEq)]
 pub struct Filter {
-    at: (usize, usize),
+    pub at: (usize, usize),
     pub left: TagElement,
     pub filter: FilterType,
 }

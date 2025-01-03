@@ -364,12 +364,11 @@ user = User('Lily')
             let mut context = Context { context, request: None, autoescape: false };
             let template = TemplateString("{{ name|default:'Bryony' }}");
             let variable = Variable::new((3, 4));
-            let filter = Filter::new(
-                template,
-                (8, 7),
-                TagElement::Variable(variable),
-                Some(Argument { at: (16, 8), argument_type: ArgumentType::Text(Text::new((17, 6)))}),
-            ).unwrap();
+            let filter = Filter {
+                at: (8, 7),
+                left: TagElement::Variable(variable),
+                filter: FilterType::Default(Argument { at: (16, 8), argument_type: ArgumentType::Text(Text::new((17, 6)))}),
+            };
 
             let rendered = filter.render(py, template, &mut context).unwrap();
             assert_eq!(rendered, "Lily");
@@ -385,12 +384,11 @@ user = User('Lily')
             let mut context = Context { context, request: None, autoescape: false };
             let template = TemplateString("{{ name|default:'Bryony' }}");
             let variable = Variable::new((3, 4));
-            let filter = Filter::new(
-                template,
-                (8, 7),
-                TagElement::Variable(variable),
-                Some(Argument{ at: (16, 8), argument_type: ArgumentType::Text(Text::new((17, 6)))}),
-            ).unwrap();
+            let filter = Filter {
+                at: (8, 7),
+                left: TagElement::Variable(variable),
+                filter: FilterType::Default(Argument{ at: (16, 8), argument_type: ArgumentType::Text(Text::new((17, 6)))}),
+            };
 
             let rendered = filter.render(py, template, &mut context).unwrap();
             assert_eq!(rendered, "Bryony");
@@ -406,12 +404,11 @@ user = User('Lily')
             let mut context = Context { context, request: None, autoescape: false };
             let template = TemplateString("{{ count|default:12}}");
             let variable = Variable::new((3, 5));
-            let filter = Filter::new(
-                template,
-                (9, 7),
-                TagElement::Variable(variable),
-                Some(Argument { at: (17, 2), argument_type: ArgumentType::Int(12.into())}),
-            ).unwrap();
+            let filter = Filter {
+                at: (9, 7),
+                left: TagElement::Variable(variable),
+                filter: FilterType::Default(Argument { at: (17, 2), argument_type: ArgumentType::Int(12.into())}),
+            };
 
             let rendered = filter.render(py, template, &mut context).unwrap();
             assert_eq!(rendered, "12");
@@ -427,12 +424,11 @@ user = User('Lily')
             let mut context = Context { context, request: None, autoescape: false };
             let template = TemplateString("{{ count|default:3.5}}");
             let variable = Variable::new((3, 5));
-            let filter = Filter::new(
-                template,
-                (9, 7),
-                TagElement::Variable(variable),
-                Some(Argument{ at: (17, 3), argument_type: ArgumentType::Float(3.5)}),
-            ).unwrap();
+            let filter = Filter {
+                at: (9, 7),
+                left: TagElement::Variable(variable),
+                filter: FilterType::Default(Argument{ at: (17, 3), argument_type: ArgumentType::Float(3.5)}),
+            };
 
             let rendered = filter.render(py, template, &mut context).unwrap();
             assert_eq!(rendered, "3.5");
@@ -449,12 +445,11 @@ user = User('Lily')
             let mut context = Context { context, request: None, autoescape: false };
             let template = TemplateString("{{ name|default:me}}");
             let variable = Variable::new((3, 4));
-            let filter = Filter::new(
-                template,
-                (8, 7),
-                TagElement::Variable(variable),
-                Some(Argument{ at: (16, 2), argument_type: ArgumentType::Variable(Variable::new((16, 2)))}),
-            ).unwrap();
+            let filter = Filter {
+                at: (8, 7),
+                left: TagElement::Variable(variable),
+                filter: FilterType::Default(Argument{ at: (16, 2), argument_type: ArgumentType::Variable(Variable::new((16, 2)))}),
+            };
 
             let rendered = filter.render(py, template, &mut context).unwrap();
             assert_eq!(rendered, "Lily");
@@ -471,12 +466,11 @@ user = User('Lily')
             let mut context = Context { context, request: None, autoescape: false };
             let template = TemplateString("{{ name|lower }}");
             let variable = Variable::new((3, 4));
-            let filter = Filter::new(
-                template,
-                (8, 5),
-                TagElement::Variable(variable),
-                None,
-            ).unwrap();
+            let filter = Filter {
+                at: (8, 5),
+                left: TagElement::Variable(variable),
+                filter: FilterType::Lower,
+            };
 
             let rendered = filter.render(py, template, &mut context).unwrap();
             assert_eq!(rendered, "lily");
@@ -492,12 +486,11 @@ user = User('Lily')
             let mut context = Context { context, request: None, autoescape: false };
             let template = TemplateString("{{ name|lower }}");
             let variable = Variable::new((3, 4));
-            let filter = Filter::new(
-                template,
-                (8, 5),
-                TagElement::Variable(variable),
-                None,
-            ).unwrap();
+            let filter = Filter {
+                at: (8, 5),
+                left: TagElement::Variable(variable),
+                filter: FilterType::Lower,
+            };
 
             let rendered = filter.render(py, template, &mut context).unwrap();
             assert_eq!(rendered, "");
@@ -513,18 +506,16 @@ user = User('Lily')
             let mut context = Context { context, request: None, autoescape: false };
             let template = TemplateString("{{ name|default:'Bryony'|lower }}");
             let variable = Variable::new((3, 4));
-            let default = Filter::new(
-                template,
-                (8, 7),
-                TagElement::Variable(variable),
-                Some(Argument { at: (16, 8), argument_type: ArgumentType::Text(Text::new((17, 6)))}),
-            ).unwrap();
-            let lower = Filter::new(
-                template,
-                (25, 5),
-                TagElement::Filter(Box::new(default)),
-                None,
-            ).unwrap();
+            let default = Filter {
+                at: (8, 7),
+                left: TagElement::Variable(variable),
+                filter: FilterType::Default(Argument { at: (16, 8), argument_type: ArgumentType::Text(Text::new((17, 6)))}),
+            };
+            let lower = Filter {
+                at: (25, 5),
+                left: TagElement::Filter(Box::new(default)),
+                filter: FilterType::Lower,
+            };
 
             let rendered = lower.render(py, template, &mut context).unwrap();
             assert_eq!(rendered, "bryony");
