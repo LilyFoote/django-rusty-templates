@@ -2,10 +2,12 @@ use std::collections::HashMap;
 
 use miette::{Diagnostic, SourceSpan};
 use num_bigint::BigInt;
+use pyo3::intern;
 use pyo3::prelude::*;
 use thiserror::Error;
 
 use crate::lex::core::{Lexer, TokenType};
+use crate::lex::load::{LoadLexer, LoadToken};
 use crate::lex::tag::{lex_tag, TagLexerError, TagParts};
 use crate::lex::url::{UrlLexer, UrlLexerError, UrlToken, UrlTokenType};
 use crate::lex::variable::{
@@ -279,12 +281,14 @@ impl PyEq for Url {
 
 #[derive(Debug, PartialEq)]
 pub enum Tag {
+    Load,
     Url(Url),
 }
 
 impl CloneRef for Tag {
     fn clone_ref(&self, py: Python<'_>) -> Self {
         match self {
+            Self::Load => Self::Load,
             Self::Url(url) => Self::Url(url.clone_ref(py)),
         }
     }
@@ -294,6 +298,7 @@ impl CloneRef for Tag {
 impl PyEq for Tag {
     fn py_eq(&self, other: &Self, py: Python<'_>) -> bool {
         match (self, other) {
+            (Self::Load, Self::Load) => true,
             (Self::Url(a), Self::Url(b)) => a.py_eq(b, py),
             _ => false,
         }
@@ -385,6 +390,14 @@ pub enum ParseError {
         #[label("here")]
         at: SourceSpan,
     },
+    #[error("'{library}' is not a registered tag library.")]
+    MissingTagLibrary {
+        library: String,
+        #[label("here")]
+        at: SourceSpan,
+        #[help]
+        help: String,
+    },
     #[error("Cannot mix arguments and keyword arguments")]
     MixedArgsKwargs {
         #[label("here")]
@@ -432,19 +445,51 @@ impl PyParseError {
     }
 }
 
-pub struct Parser<'t, 'py> {
+impl LoadToken {
+    fn load_library<'l, 'py>(
+        &self,
+        py: Python<'py>,
+        libraries: &'l HashMap<String, Py<PyAny>>,
+        template: TemplateString<'_>,
+    ) -> Result<&'l Bound<'py, PyAny>, ParseError> {
+        let library_name = template.content(self.at);
+        match libraries.get(library_name) {
+            Some(library) => Ok(library.bind(py)),
+            None => {
+                let mut libraries: Vec<_> = libraries.keys().map(String::as_str).collect();
+                libraries.sort_unstable();
+                let help = format!("Must be one of:\n{}", libraries.join("\n"));
+                Err(ParseError::MissingTagLibrary {
+                    at: self.at.into(),
+                    library: library_name.to_string(),
+                    help,
+                })
+            }
+        }
+    }
+}
+
+pub struct Parser<'t, 'l, 'py> {
     py: Python<'py>,
     template: TemplateString<'t>,
     lexer: Lexer<'t>,
+    libraries: &'l HashMap<String, Py<PyAny>>,
+    external_tags: HashMap<String, Bound<'py, PyAny>>,
     external_filters: HashMap<String, Bound<'py, PyAny>>,
 }
 
-impl<'t, 'py> Parser<'t, 'py> {
-    pub fn new(py: Python<'py>, template: TemplateString<'t>) -> Self {
+impl<'t, 'l, 'py> Parser<'t, 'l, 'py> {
+    pub fn new(
+        py: Python<'py>,
+        template: TemplateString<'t>,
+        libraries: &'l HashMap<String, Py<PyAny>>,
+    ) -> Self {
         Self {
             py,
             template,
             lexer: Lexer::new(template),
+            libraries,
+            external_tags: HashMap::new(),
             external_filters: HashMap::new(),
         }
     }
@@ -453,12 +498,15 @@ impl<'t, 'py> Parser<'t, 'py> {
     fn new_with_filters(
         py: Python<'py>,
         template: TemplateString<'t>,
+        libraries: &'l HashMap<String, Py<PyAny>>,
         external_filters: HashMap<String, Bound<'py, PyAny>>,
     ) -> Self {
         Self {
             py,
             template,
             lexer: Lexer::new(template),
+            libraries,
+            external_tags: HashMap::new(),
             external_filters,
         }
     }
@@ -519,8 +567,27 @@ impl<'t, 'py> Parser<'t, 'py> {
         };
         Ok(match self.template.content(tag.at) {
             "url" => self.parse_url(at, parts)?,
+            "load" => self.parse_load(at, parts)?,
             _ => todo!(),
         })
+    }
+
+    fn parse_load(
+        &mut self,
+        _at: (usize, usize),
+        parts: TagParts,
+    ) -> Result<TokenTree, PyParseError> {
+        let tokens: Vec<_> = LoadLexer::new(self.template, parts).collect();
+        for token in tokens {
+            let library = token.load_library(self.py, self.libraries, self.template)?;
+            let filters = library.getattr(intern!(self.py, "filters"))?;
+            let tags = library.getattr(intern!(self.py, "tags"))?;
+            let filters: HashMap<String, Bound<'_, PyAny>> = filters.extract()?;
+            let tags: HashMap<String, Bound<'_, PyAny>> = tags.extract()?;
+            self.external_filters.extend(filters);
+            self.external_tags.extend(tags);
+        }
+        Ok(TokenTree::Tag(Tag::Load))
     }
 
     fn parse_url(&mut self, at: (usize, usize), parts: TagParts) -> Result<TokenTree, ParseError> {
@@ -596,8 +663,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let nodes = parser.parse().unwrap();
             assert_eq!(nodes, vec![]);
         })
@@ -608,9 +676,10 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "Some text";
             let template_string = TemplateString(template);
-            let mut parser = Parser::new(py, template_string);
+            let mut parser = Parser::new(py, template_string, &libraries);
             let nodes = parser.parse().unwrap();
             let text = Text::new((0, template.len()));
             assert_eq!(nodes, vec![TokenTree::Text(text)]);
@@ -623,8 +692,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{# A commment #}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let nodes = parser.parse().unwrap();
             assert_eq!(nodes, vec![]);
         })
@@ -635,8 +705,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{{ }}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let error = parser.parse().unwrap_err().unwrap_parse_error();
             assert_eq!(error, ParseError::EmptyVariable { at: (0, 5).into() });
         })
@@ -647,8 +718,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = TemplateString("{{ foo }}");
-            let mut parser = Parser::new(py, template);
+            let mut parser = Parser::new(py, template, &libraries);
             let nodes = parser.parse().unwrap();
             let variable = Variable { at: (3, 3) };
             assert_eq!(nodes, vec![TokenTree::Variable(variable)]);
@@ -661,8 +733,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = TemplateString("{{ foo.bar.baz }}");
-            let mut parser = Parser::new(py, template);
+            let mut parser = Parser::new(py, template, &libraries);
             let nodes = parser.parse().unwrap();
             let variable = Variable { at: (3, 11) };
             assert_eq!(nodes, vec![TokenTree::Variable(variable)]);
@@ -678,9 +751,10 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = TemplateString("{{ foo|bar }}");
-            let mut parser = Parser::new_with_filters(py, template, filters);
+            let mut parser = Parser::new_with_filters(py, template, &libraries, filters);
             let nodes = parser.parse().unwrap();
 
             let foo = Variable { at: (3, 3) };
@@ -699,8 +773,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = TemplateString("{{ foo|bar }}");
-            let mut parser = Parser::new(py, template);
+            let mut parser = Parser::new(py, template, &libraries);
             let error = parser.parse().unwrap_err().unwrap_parse_error();
             assert_eq!(
                 error,
@@ -717,12 +792,13 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{{ foo|bar|baz }}";
             let filters = HashMap::from([
                 ("bar".to_string(), py.None().bind(py).clone()),
                 ("baz".to_string(), py.None().bind(py).clone()),
             ]);
-            let mut parser = Parser::new_with_filters(py, template.into(), filters);
+            let mut parser = Parser::new_with_filters(py, template.into(), &libraries, filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -745,9 +821,10 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = TemplateString("{{ foo|bar:baz }}");
-            let mut parser = Parser::new_with_filters(py, template, filters);
+            let mut parser = Parser::new_with_filters(py, template, &libraries, filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -773,9 +850,10 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = TemplateString("{{ foo|bar:'baz' }}");
-            let mut parser = Parser::new_with_filters(py, template, filters);
+            let mut parser = Parser::new_with_filters(py, template, &libraries, filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -801,9 +879,10 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = TemplateString("{{ foo|bar:_('baz') }}");
-            let mut parser = Parser::new_with_filters(py, template, filters);
+            let mut parser = Parser::new_with_filters(py, template, &libraries, filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -829,9 +908,10 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = "{{ foo|bar:5.2e3 }}";
-            let mut parser = Parser::new_with_filters(py, template.into(), filters);
+            let mut parser = Parser::new_with_filters(py, template.into(), &libraries, filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -853,9 +933,10 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = "{{ foo|bar:99 }}";
-            let mut parser = Parser::new_with_filters(py, template.into(), filters);
+            let mut parser = Parser::new_with_filters(py, template.into(), &libraries, filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -877,9 +958,10 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = "{{ foo|bar:99999999999999999 }}";
-            let mut parser = Parser::new_with_filters(py, template.into(), filters);
+            let mut parser = Parser::new_with_filters(py, template.into(), &libraries, filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -901,8 +983,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{{ foo|bar:9.9.9 }}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let error = parser.parse().unwrap_err().unwrap_parse_error();
             assert_eq!(error, ParseError::InvalidNumber { at: (11, 5).into() });
         })
@@ -913,8 +996,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = TemplateString("{{ foo|default:baz }}");
-            let mut parser = Parser::new(py, template);
+            let mut parser = Parser::new(py, template, &libraries);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -937,8 +1021,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{{ foo|default|baz }}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let error = parser.parse().unwrap_err().unwrap_parse_error();
             assert_eq!(error, ParseError::MissingArgument { at: (7, 7).into() });
         })
@@ -949,8 +1034,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{{ foo|lower:baz }}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let error = parser.parse().unwrap_err().unwrap_parse_error();
             assert_eq!(error, ParseError::UnexpectedArgument { at: (13, 3).into() });
         })
@@ -961,8 +1047,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{{ _foo }}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let error = parser.parse().unwrap_err().unwrap_parse_error();
             assert_eq!(
                 error,
@@ -978,8 +1065,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{%  %}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let error = parser.parse().unwrap_err().unwrap_parse_error();
             assert_eq!(error, ParseError::EmptyTag { at: (0, 6).into() });
         })
@@ -990,8 +1078,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{% url'foo' %}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let error = parser.parse().unwrap_err().unwrap_parse_error();
             assert_eq!(
                 error,
@@ -1005,8 +1094,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{% url 'some-url-name' %}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let nodes = parser.parse().unwrap();
 
             let url = TokenTree::Tag(Tag::Url(Url {
@@ -1025,8 +1115,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{% url _('some-url-name') %}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let nodes = parser.parse().unwrap();
 
             let url = TokenTree::Tag(Tag::Url(Url {
@@ -1045,8 +1136,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{% url some_view_name %}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let nodes = parser.parse().unwrap();
 
             let url = TokenTree::Tag(Tag::Url(Url {
@@ -1065,8 +1157,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{% url some_view_name|default:'home' %}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let nodes = parser.parse().unwrap();
 
             let some_view_name = TagElement::Variable(Variable { at: (7, 14) });
@@ -1095,8 +1188,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{% url %}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let error = parser.parse().unwrap_err().unwrap_parse_error();
             assert_eq!(error, ParseError::UrlTagNoArguments { at: (0, 9).into() });
         })
@@ -1107,8 +1201,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{% url 64 %}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let nodes = parser.parse().unwrap();
 
             let url = TokenTree::Tag(Tag::Url(Url {
@@ -1127,8 +1222,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{% url some_view_name 'foo' bar|default:'home' 64 5.7 _(\"spam\") %}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let nodes = parser.parse().unwrap();
 
             let url = TokenTree::Tag(Tag::Url(Url {
@@ -1160,8 +1256,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{% url some_view_name foo='foo' extra=-64 %}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let nodes = parser.parse().unwrap();
 
             let url = TokenTree::Tag(Tag::Url(Url {
@@ -1183,8 +1280,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{% url some_view_name 'foo' as some_url %}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let nodes = parser.parse().unwrap();
 
             let url = TokenTree::Tag(Tag::Url(Url {
@@ -1203,8 +1301,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{% url some_view_name foo='foo' as some_url %}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let nodes = parser.parse().unwrap();
 
             let url = TokenTree::Tag(Tag::Url(Url {
@@ -1223,8 +1322,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{% url some_view_name 'foo' arg arg2 %}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let nodes = parser.parse().unwrap();
 
             let url = TokenTree::Tag(Tag::Url(Url {
@@ -1247,8 +1347,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{% url some_view_name 'foo' arg name=arg2 %}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let error = parser.parse().unwrap_err().unwrap_parse_error();
             assert_eq!(
                 error,
@@ -1264,8 +1365,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let libraries = HashMap::new();
             let template = "{% url foo 9.9.9 %}";
-            let mut parser = Parser::new(py, template.into());
+            let mut parser = Parser::new(py, template.into(), &libraries);
             let error = parser.parse().unwrap_err().unwrap_parse_error();
             assert_eq!(error, ParseError::InvalidNumber { at: (11, 5).into() });
         })

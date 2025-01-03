@@ -194,7 +194,7 @@ pub mod django_rusty_templates {
 
     impl Template {
         pub fn new(py: Python<'_>, template: &str, filename: PathBuf, engine_data: &EngineData) -> PyResult<Self> {
-            let mut parser = Parser::new(py, TemplateString(template));
+            let mut parser = Parser::new(py, TemplateString(template), &engine_data.libraries);
             let nodes = match parser.parse() {
                 Ok(nodes) => nodes,
                 Err(err) => {
@@ -213,7 +213,7 @@ pub mod django_rusty_templates {
         }
 
         pub fn new_from_string(py: Python<'_>, template: String, engine_data: &EngineData) -> PyResult<Self> {
-            let mut parser = Parser::new(py, TemplateString(&template));
+            let mut parser = Parser::new(py, TemplateString(&template), &engine_data.libraries);
             let nodes = match parser.parse() {
                 Ok(nodes) => nodes,
                 Err(err) => {

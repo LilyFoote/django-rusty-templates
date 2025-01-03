@@ -206,6 +206,7 @@ impl Render for Tag {
         context: &mut Context,
     ) -> PyResult<Option<Content<'t, 'py>>> {
         match self {
+            Self::Load => Ok(None),
             Self::Url(url) => url.resolve(py, template, context),
         }
     }
