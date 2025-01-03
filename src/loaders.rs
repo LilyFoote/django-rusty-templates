@@ -6,7 +6,8 @@ use pyo3::exceptions::PyUnicodeError;
 use pyo3::prelude::*;
 use sugar_path::SugarPath;
 
-use crate::template::django_rusty_templates::Template;
+use crate::template::django_rusty_templates::{EngineData, Template};
+use crate::types::CloneRef;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LoaderError {
@@ -45,9 +46,9 @@ impl FileSystemLoader {
 
     fn get_template(
         &self,
-        _py: Python<'_>,
+        py: Python<'_>,
         template_name: &str,
-        autoescape: bool,
+        engine: &EngineData,
     ) -> Result<PyResult<Template>, LoaderError> {
         let mut tried = Vec::new();
         for template_dir in &self.dirs {
@@ -72,7 +73,7 @@ impl FileSystemLoader {
                     encoding.name()
                 ))));
             }
-            return Ok(Template::new(&contents, path, autoescape));
+            return Ok(Template::new(py, &contents, path, engine));
         }
         Err(LoaderError { tried })
     }
@@ -85,7 +86,7 @@ impl AppDirsLoader {
         &self,
         _py: Python<'_>,
         _template_name: &str,
-        _autoescape: bool,
+        _engine: &EngineData,
     ) -> Result<PyResult<Template>, LoaderError> {
         todo!()
     }
@@ -108,18 +109,18 @@ impl CachedLoader {
         &mut self,
         py: Python<'_>,
         template_name: &str,
-        autoescape: bool,
+        engine: &EngineData,
     ) -> Result<PyResult<Template>, LoaderError> {
         match self.cache.get(template_name) {
-            Some(Ok(template)) => Ok(Ok(template.clone())),
+            Some(Ok(template)) => Ok(Ok((*template).clone_ref(py))),
             Some(Err(e)) => Err(e.clone()),
             None => {
                 let mut tried = Vec::new();
                 for loader in &mut self.loaders {
-                    match loader.get_template(py, template_name, autoescape) {
+                    match loader.get_template(py, template_name, engine) {
                         Ok(Ok(template)) => {
                             self.cache
-                                .insert(template_name.to_string(), Ok(template.clone()));
+                                .insert(template_name.to_string(), Ok(template.clone_ref(py)));
                             return Ok(Ok(template));
                         }
                         Ok(Err(e)) => return Ok(Err(e)),
@@ -146,15 +147,16 @@ impl LocMemLoader {
 
     fn get_template(
         &self,
-        _py: Python<'_>,
+        py: Python<'_>,
         template_name: &str,
-        autoescape: bool,
+        engine: &EngineData,
     ) -> Result<PyResult<Template>, LoaderError> {
         if let Some(contents) = self.templates.get(template_name) {
             Ok(Template::new(
+                py,
                 contents,
                 PathBuf::from(template_name),
-                autoescape,
+                engine,
             ))
         } else {
             Err(LoaderError {
@@ -174,7 +176,7 @@ impl ExternalLoader {
         &self,
         _py: Python<'_>,
         _template_name: &str,
-        _autoescape: bool,
+        _engine: &EngineData,
     ) -> Result<PyResult<Template>, LoaderError> {
         todo!()
     }
@@ -193,14 +195,14 @@ impl Loader {
         &mut self,
         py: Python<'_>,
         template_name: &str,
-        autoescape: bool,
+        engine: &EngineData,
     ) -> Result<PyResult<Template>, LoaderError> {
         match self {
-            Self::FileSystem(loader) => loader.get_template(py, template_name, autoescape),
-            Self::AppDirs(loader) => loader.get_template(py, template_name, autoescape),
-            Self::Cached(loader) => loader.get_template(py, template_name, autoescape),
-            Self::LocMem(loader) => loader.get_template(py, template_name, autoescape),
-            Self::External(loader) => loader.get_template(py, template_name, autoescape),
+            Self::FileSystem(loader) => loader.get_template(py, template_name, engine),
+            Self::AppDirs(loader) => loader.get_template(py, template_name, engine),
+            Self::Cached(loader) => loader.get_template(py, template_name, engine),
+            Self::LocMem(loader) => loader.get_template(py, template_name, engine),
+            Self::External(loader) => loader.get_template(py, template_name, engine),
         }
     }
 }
@@ -216,10 +218,11 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let engine = EngineData::empty();
             let loader =
                 FileSystemLoader::new(vec!["tests/templates".to_string()], encoding_rs::UTF_8);
             let template = loader
-                .get_template(py, "basic.txt", false)
+                .get_template(py, "basic.txt", &engine)
                 .unwrap()
                 .unwrap();
 
@@ -234,9 +237,10 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let engine = EngineData::empty();
             let loader =
                 FileSystemLoader::new(vec!["tests/templates".to_string()], encoding_rs::UTF_8);
-            let error = loader.get_template(py, "missing.txt", false).unwrap_err();
+            let error = loader.get_template(py, "missing.txt", &engine).unwrap_err();
 
             let mut expected = std::env::current_dir().unwrap();
             expected.push("tests/templates/missing.txt");
@@ -257,10 +261,11 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let engine = EngineData::empty();
             let loader =
                 FileSystemLoader::new(vec!["tests/templates".to_string()], encoding_rs::UTF_8);
             let error = loader
-                .get_template(py, "invalid.txt", false)
+                .get_template(py, "invalid.txt", &engine)
                 .unwrap()
                 .unwrap_err();
 
@@ -289,6 +294,8 @@ mod tests {
                 }
             };
 
+            let engine = EngineData::empty();
+
             // Create a FileSystemLoader for the CachedLoader
             let filesystem_loader =
                 FileSystemLoader::new(vec!["tests/templates".to_string()], encoding_rs::UTF_8);
@@ -298,7 +305,7 @@ mod tests {
 
             // Load a template via the CachedLoader
             let template = cached_loader
-                .get_template(py, "basic.txt", false)
+                .get_template(py, "basic.txt", &engine)
                 .expect("Failed to load template")
                 .expect("Template file could not be read");
 
@@ -314,7 +321,7 @@ mod tests {
 
             // Load the same template again via the CachedLoader
             let template = cached_loader
-                .get_template(py, "basic.txt", false)
+                .get_template(py, "basic.txt", &engine)
                 .expect("Failed to load template")
                 .expect("Template file could not be read");
 
@@ -332,12 +339,13 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let engine = EngineData::empty();
             let filesystem_loader =
                 FileSystemLoader::new(vec!["tests/templates".to_string()], encoding_rs::UTF_8);
 
             let mut cached_loader = CachedLoader::new(vec![Loader::FileSystem(filesystem_loader)]);
             let error = cached_loader
-                .get_template(py, "missing.txt", false)
+                .get_template(py, "missing.txt", &engine)
                 .unwrap_err();
 
             let mut expected = std::env::current_dir().unwrap();
@@ -357,7 +365,7 @@ mod tests {
             );
 
             let error = cached_loader
-                .get_template(py, "missing.txt", false)
+                .get_template(py, "missing.txt", &engine)
                 .unwrap_err();
             assert_eq!(error, expected_err);
         })
@@ -368,12 +376,13 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let engine = EngineData::empty();
             let filesystem_loader =
                 FileSystemLoader::new(vec!["tests/templates".to_string()], encoding_rs::UTF_8);
 
             let mut cached_loader = CachedLoader::new(vec![Loader::FileSystem(filesystem_loader)]);
             let error = cached_loader
-                .get_template(py, "invalid.txt", false)
+                .get_template(py, "invalid.txt", &engine)
                 .unwrap()
                 .unwrap_err();
 
@@ -391,13 +400,14 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let engine = EngineData::empty();
             let mut templates: HashMap<String, String> = HashMap::new();
             templates.insert("index.html".to_string(), "index".to_string());
 
             let loader = LocMemLoader::new(templates);
 
             let template = loader
-                .get_template(py, "index.html", true)
+                .get_template(py, "index.html", &engine)
                 .unwrap()
                 .unwrap();
             assert_eq!(template.template, "index".to_string());
@@ -410,11 +420,12 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let engine = EngineData::empty();
             let templates: HashMap<String, String> = HashMap::new();
 
             let loader = LocMemLoader::new(templates);
 
-            let error = loader.get_template(py, "index.html", true).unwrap_err();
+            let error = loader.get_template(py, "index.html", &engine).unwrap_err();
             assert_eq!(
                 error,
                 LoaderError {

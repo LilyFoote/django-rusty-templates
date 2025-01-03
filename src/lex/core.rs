@@ -1,4 +1,5 @@
 use crate::lex::{END_TAG_LEN, START_TAG_LEN};
+use crate::types::TemplateString;
 
 enum EndTag {
     Variable,
@@ -51,30 +52,32 @@ impl Token {
 }
 
 impl<'t> Token {
-    pub fn content(&self, template: &'t str) -> &'t str {
+    pub fn content(&self, template: TemplateString<'t>) -> &'t str {
         let (start, len) = self.at;
-        let (start, end) = match self.token_type {
-            TokenType::Text => (start, start + len),
-            TokenType::Variable => (start + START_TAG_LEN, start + len - END_TAG_LEN),
-            TokenType::Tag => (start + START_TAG_LEN, start + len - END_TAG_LEN),
-            TokenType::Comment => (start + START_TAG_LEN, start + len - END_TAG_LEN),
+        let start = start + START_TAG_LEN;
+        let len = len - START_TAG_LEN - END_TAG_LEN;
+        let at = match self.token_type {
+            TokenType::Text => self.at,
+            TokenType::Variable => (start, len),
+            TokenType::Tag => (start, len),
+            TokenType::Comment => (start, len),
         };
-        &template[start..end]
+        template.content(at)
     }
 }
 
 pub struct Lexer<'t> {
-    template: &'t str,
+    template: TemplateString<'t>,
     rest: &'t str,
     byte: usize,
     verbatim: Option<&'t str>,
 }
 
 impl<'t> Lexer<'t> {
-    pub fn new(template: &'t str) -> Self {
+    pub fn new(template: TemplateString<'t>) -> Self {
         Self {
             template,
-            rest: template,
+            rest: template.0,
             byte: 0,
             verbatim: None,
         }
@@ -222,14 +225,15 @@ impl Iterator for Lexer<'_> {
 mod tests {
     use super::*;
 
-    fn contents(template: &str, tokens: Vec<Token>) -> Vec<&str> {
+    fn contents<'t>(template: impl Into<TemplateString<'t>>, tokens: Vec<Token>) -> Vec<&'t str> {
+        let template = template.into();
         tokens.iter().map(|t| t.content(template)).collect()
     }
 
     #[test]
     fn test_lex_empty() {
         let template = "";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(tokens, vec![]);
     }
@@ -237,7 +241,7 @@ mod tests {
     #[test]
     fn test_lex_text() {
         let template = "Just some text";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(tokens, vec![Token::text((0, 14))]);
         assert_eq!(contents(template, tokens), vec![template]);
@@ -246,7 +250,7 @@ mod tests {
     #[test]
     fn test_lex_text_whitespace() {
         let template = "    ";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(tokens, vec![Token::text((0, 4))]);
         assert_eq!(contents(template, tokens), vec![template]);
@@ -255,7 +259,7 @@ mod tests {
     #[test]
     fn test_lex_comment() {
         let template = "{# comment #}";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(tokens, vec![Token::comment((0, 13))]);
         assert_eq!(contents(template, tokens), vec![" comment "]);
@@ -264,7 +268,7 @@ mod tests {
     #[test]
     fn test_lex_variable() {
         let template = "{{ foo.bar|title }}";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(tokens, vec![Token::variable((0, 19))]);
         assert_eq!(contents(template, tokens), vec![" foo.bar|title "]);
@@ -273,7 +277,7 @@ mod tests {
     #[test]
     fn test_lex_tag() {
         let template = "{% for foo in bar %}";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(tokens, vec![Token::tag((0, 20))]);
         assert_eq!(contents(template, tokens), vec![" for foo in bar "]);
@@ -282,7 +286,7 @@ mod tests {
     #[test]
     fn test_lex_incomplete_comment() {
         let template = "{# comment #";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(tokens, vec![Token::text((0, 12))]);
         assert_eq!(contents(template, tokens), vec![template]);
@@ -291,7 +295,7 @@ mod tests {
     #[test]
     fn test_lex_incomplete_variable() {
         let template = "{{ foo.bar|title }";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(tokens, vec![Token::text((0, 18))]);
         assert_eq!(contents(template, tokens), vec![template]);
@@ -300,7 +304,7 @@ mod tests {
     #[test]
     fn test_lex_incomplete_tag() {
         let template = "{% for foo in bar %";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(tokens, vec![Token::text((0, 19))]);
         assert_eq!(contents(template, tokens), vec![template]);
@@ -309,7 +313,7 @@ mod tests {
     #[test]
     fn test_django_example() {
         let template = "text\n{% if test %}{{ varvalue }}{% endif %}{#comment {{not a var}} {%not a block%} #}end text";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(
             tokens,
@@ -338,7 +342,7 @@ mod tests {
     #[test]
     fn test_verbatim_with_variable() {
         let template = "{% verbatim %}{{bare   }}{% endverbatim %}";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(
             tokens,
@@ -357,7 +361,7 @@ mod tests {
     #[test]
     fn test_verbatim_with_tag() {
         let template = "{% verbatim %}{% endif %}{% endverbatim %}";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(
             tokens,
@@ -376,7 +380,7 @@ mod tests {
     #[test]
     fn test_verbatim_with_verbatim_tag() {
         let template = "{% verbatim %}It's the {% verbatim %} tag{% endverbatim %}";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(
             tokens,
@@ -395,7 +399,7 @@ mod tests {
     #[test]
     fn test_verbatim_nested() {
         let template = "{% verbatim %}{% verbatim %}{% endverbatim %}{% endverbatim %}";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(
             tokens,
@@ -420,7 +424,7 @@ mod tests {
     #[test]
     fn test_verbatim_adjacent() {
         let template = "{% verbatim %}{% endverbatim %}{% verbatim %}{% endverbatim %}";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(
             tokens,
@@ -441,7 +445,7 @@ mod tests {
     fn test_verbatim_special() {
         let template =
             "{% verbatim special %}Don't {% endverbatim %} just yet{% endverbatim special %}";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(
             tokens,
@@ -464,7 +468,7 @@ mod tests {
     #[test]
     fn test_verbatim_open_tag() {
         let template = "{% verbatim %}Don't {% ";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(tokens, vec![Token::tag((0, 14)), Token::text((14, 9))]);
         assert_eq!(contents(template, tokens), vec![" verbatim ", "Don't {% "]);
@@ -473,7 +477,7 @@ mod tests {
     #[test]
     fn test_verbatim_no_tag() {
         let template = "{% verbatim %}Don't end verbatim";
-        let lexer = Lexer::new(template);
+        let lexer = Lexer::new(template.into());
         let tokens: Vec<_> = lexer.collect();
         assert_eq!(tokens, vec![Token::tag((0, 14)), Token::text((14, 18))]);
         assert_eq!(

@@ -13,14 +13,7 @@ pub enum TagLexerError {
 
 #[derive(Debug, PartialEq)]
 pub struct TagToken {
-    at: (usize, usize),
-}
-
-impl<'t> TagToken {
-    pub fn content(&self, template: &'t str) -> &'t str {
-        let (start, len) = self.at;
-        &template[start..start + len]
-    }
+    pub at: (usize, usize),
 }
 
 #[derive(Debug, PartialEq)]
@@ -68,6 +61,7 @@ mod tests {
     use super::*;
 
     use crate::lex::{END_TAG_LEN, START_TAG_LEN};
+    use crate::types::TemplateString;
 
     fn trim_tag(template: &str) -> &str {
         &template[START_TAG_LEN..(template.len() - END_TAG_LEN)]
@@ -86,7 +80,7 @@ mod tests {
         let tag = trim_tag(template);
         let (token, rest) = lex_tag(tag, START_TAG_LEN).unwrap().unwrap();
         assert_eq!(token, TagToken { at: (3, 9) });
-        assert_eq!(token.content(template), "csrftoken");
+        assert_eq!(TemplateString(template).content(token.at), "csrftoken");
         assert_eq!(rest, TagParts { at: (9, 0) })
     }
 
@@ -112,7 +106,7 @@ mod tests {
         let tag = trim_tag(template);
         let (token, rest) = lex_tag(tag, START_TAG_LEN).unwrap().unwrap();
         assert_eq!(token, TagToken { at: (3, 3) });
-        assert_eq!(token.content(template), "url");
+        assert_eq!(TemplateString(template).content(token.at), "url");
         assert_eq!(rest, TagParts { at: (7, 8) })
     }
 }
