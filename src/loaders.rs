@@ -7,6 +7,7 @@ use pyo3::prelude::*;
 use sugar_path::SugarPath;
 
 use crate::template::django_rusty_templates::{EngineData, Template};
+use crate::types::CloneRef;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LoaderError {
@@ -111,7 +112,7 @@ impl CachedLoader {
         engine: &EngineData,
     ) -> Result<PyResult<Template>, LoaderError> {
         match self.cache.get(template_name) {
-            Some(Ok(template)) => Ok(Ok(template.clone())),
+            Some(Ok(template)) => Ok(Ok((*template).clone_ref(py))),
             Some(Err(e)) => Err(e.clone()),
             None => {
                 let mut tried = Vec::new();
@@ -119,7 +120,7 @@ impl CachedLoader {
                     match loader.get_template(py, template_name, engine) {
                         Ok(Ok(template)) => {
                             self.cache
-                                .insert(template_name.to_string(), Ok(template.clone()));
+                                .insert(template_name.to_string(), Ok(template.clone_ref(py)));
                             return Ok(Ok(template));
                         }
                         Ok(Err(e)) => return Ok(Err(e)),

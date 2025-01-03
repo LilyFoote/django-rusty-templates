@@ -1,5 +1,6 @@
 use miette::{Diagnostic, SourceSpan};
 use num_bigint::BigInt;
+use pyo3::prelude::*;
 use thiserror::Error;
 
 use crate::lex::core::{Lexer, TokenType};
@@ -9,7 +10,7 @@ use crate::lex::variable::{
     lex_variable, Argument as ArgumentToken, ArgumentType as ArgumentTokenType, VariableLexerError,
 };
 use crate::lex::START_TAG_LEN;
-use crate::types::TemplateString;
+use crate::types::{CloneRef, TemplateString};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Variable {
@@ -75,7 +76,7 @@ impl ArgumentToken {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum TagElement {
     Int(BigInt),
     Float(f64),
@@ -85,14 +86,37 @@ pub enum TagElement {
     Filter(Box<Filter>),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+impl CloneRef for TagElement {
+    fn clone_ref(&self, py: Python<'_>) -> Self {
+        match self {
+            Self::Int(int) => Self::Int(int.clone()),
+            Self::Float(float) => Self::Float(*float),
+            Self::Text(text) => Self::Text(*text),
+            Self::TranslatedText(text) => Self::TranslatedText(*text),
+            Self::Variable(variable) => Self::Variable(*variable),
+            Self::Filter(filter) => Self::Filter(Box::new(filter.clone_ref(py))),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum FilterType {
     Default(Argument),
     External(Option<Argument>),
     Lower,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+impl CloneRef for FilterType {
+    fn clone_ref(&self, _py: Python<'_>) -> Self {
+        match self {
+            Self::Default(arg) => Self::Default(arg.clone()),
+            Self::External(arg) => Self::External(arg.clone()),
+            Self::Lower => Self::Lower,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub struct Filter {
     at: (usize, usize),
     pub left: TagElement,
@@ -125,6 +149,16 @@ impl Filter {
     }
 }
 
+impl CloneRef for Filter {
+    fn clone_ref(&self, py: Python<'_>) -> Self {
+        Self {
+            at: self.at,
+            left: self.left.clone_ref(py),
+            filter: self.filter.clone_ref(py),
+        }
+    }
+}
+
 impl UrlToken {
     fn parse(&self, template: TemplateString<'_>) -> Result<TagElement, ParseError> {
         let content_at = self.content_at();
@@ -145,7 +179,7 @@ impl UrlToken {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Url {
     pub view_name: TagElement,
     pub args: Vec<TagElement>,
@@ -153,18 +187,49 @@ pub struct Url {
     pub variable: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+impl CloneRef for Url {
+    fn clone_ref(&self, py: Python<'_>) -> Self {
+        Self {
+            view_name: self.view_name.clone_ref(py),
+            args: self.args.clone_ref(py),
+            kwargs: self.kwargs.clone_ref(py),
+            variable: self.variable.clone(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum Tag {
     Url(Url),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+impl CloneRef for Tag {
+    fn clone_ref(&self, py: Python<'_>) -> Self {
+        match self {
+            Self::Url(url) => Self::Url(url.clone_ref(py)),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum TokenTree {
     Text(Text),
     TranslatedText(Text),
     Tag(Tag),
     Variable(Variable),
     Filter(Box<Filter>),
+}
+
+impl CloneRef for TokenTree {
+    fn clone_ref(&self, py: Python<'_>) -> Self {
+        match self {
+            Self::Text(text) => Self::Text(*text),
+            Self::TranslatedText(text) => Self::TranslatedText(*text),
+            Self::Tag(tag) => Self::Tag(tag.clone_ref(py)),
+            Self::Variable(variable) => Self::Variable(*variable),
+            Self::Filter(filter) => Self::Filter(Box::new(filter.clone_ref(py))),
+        }
+    }
 }
 
 impl From<TagElement> for TokenTree {

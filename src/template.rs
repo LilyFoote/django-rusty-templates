@@ -15,7 +15,7 @@ pub mod django_rusty_templates {
     use crate::loaders::{AppDirsLoader, CachedLoader, FileSystemLoader, Loader};
     use crate::parse::{Parser, TokenTree};
     use crate::render::{Context, Render};
-    use crate::types::TemplateString;
+    use crate::types::{CloneRef, TemplateString};
     use crate::utils::PyResultMethods;
 
     import_exception_bound!(django.core.exceptions, ImproperlyConfigured);
@@ -183,7 +183,7 @@ pub mod django_rusty_templates {
         }
     }
 
-    #[derive(Clone, Debug)]
+    #[derive(Debug)]
     #[pyclass]
     pub struct Template {
         pub filename: Option<PathBuf>,
@@ -241,6 +241,17 @@ pub mod django_rusty_templates {
         }
     }
 
+    impl CloneRef for Template {
+        fn clone_ref(&self, py: Python<'_>) -> Self {
+            Self {
+                filename: self.filename.clone(),
+                template: self.template.clone(),
+                nodes: self.nodes.clone_ref(py),
+                autoescape: self.autoescape,
+            }
+        }
+    }
+
     #[pymethods]
     impl Template {
         #[pyo3(signature = (context=None, request=None))]
@@ -272,43 +283,46 @@ mod tests {
     fn test_syntax_error() {
         pyo3::prepare_freethreaded_python();
 
-        let mut filename = std::env::current_dir().unwrap();
-        filename.push("tests");
-        filename.push("templates");
-        filename.push("parse_error.txt");
+        Python::with_gil(|_py| {
+            let mut filename = std::env::current_dir().unwrap();
+            filename.push("tests");
+            filename.push("templates");
+            filename.push("parse_error.txt");
 
-        let expected = format!(
-            "TemplateSyntaxError: \n  × Empty variable tag
+            let expected = format!(
+                "TemplateSyntaxError: \n  × Empty variable tag
    ╭─[{}:1:28]
  1 │ This is an empty variable: {{{{ }}}}
    ·                            ──┬──
    ·                              ╰── here
    ╰────
 ",
-            filename.display(),
-        );
+                filename.display(),
+            );
 
-        let engine = EngineData::empty();
-        let template_string = std::fs::read_to_string(&filename).unwrap();
-        let error = temp_env::with_var("NO_COLOR", Some("1"), || {
-            Template::new(&template_string, filename, &engine).unwrap_err()
-        });
+            let engine = EngineData::empty();
+            let template_string = std::fs::read_to_string(&filename).unwrap();
+            let error = temp_env::with_var("NO_COLOR", Some("1"), || {
+                Template::new(&template_string, filename, &engine).unwrap_err()
+            });
 
-        let error_string = format!("{error}");
-        assert_eq!(error_string, expected);
+            let error_string = format!("{error}");
+            assert_eq!(error_string, expected);
+        })
     }
 
     #[test]
     fn test_syntax_error_from_string() {
         pyo3::prepare_freethreaded_python();
 
-        let engine = EngineData::empty();
-        let template_string = "{{ foo.bar|title'foo' }}".to_string();
-        let error = temp_env::with_var("NO_COLOR", Some("1"), || {
-            Template::new_from_string(template_string, &engine).unwrap_err()
-        });
+        Python::with_gil(|_py| {
+            let engine = EngineData::empty();
+            let template_string = "{{ foo.bar|title'foo' }}".to_string();
+            let error = temp_env::with_var("NO_COLOR", Some("1"), || {
+                Template::new_from_string(template_string, &engine).unwrap_err()
+            });
 
-        let expected = "TemplateSyntaxError: \n  × Could not parse the remainder
+            let expected = "TemplateSyntaxError: \n  × Could not parse the remainder
    ╭────
  1 │ {{ foo.bar|title'foo' }}
    ·                 ──┬──
@@ -316,8 +330,9 @@ mod tests {
    ╰────
 ";
 
-        let error_string = format!("{error}");
-        assert_eq!(error_string, expected);
+            let error_string = format!("{error}");
+            assert_eq!(error_string, expected);
+        })
     }
 
     #[test]
