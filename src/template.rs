@@ -198,6 +198,7 @@ pub mod django_rusty_templates {
             let nodes = match parser.parse() {
                 Ok(nodes) => nodes,
                 Err(err) => {
+                    let err = err.try_into_parse_error()?;
                     let source =
                         miette::NamedSource::new(filename.to_string_lossy(), template.to_string());
                     return Err(TemplateSyntaxError::with_source_code(err.into(), source));
@@ -216,6 +217,7 @@ pub mod django_rusty_templates {
             let nodes = match parser.parse() {
                 Ok(nodes) => nodes,
                 Err(err) => {
+                    let err = err.try_into_parse_error()?;
                     return Err(TemplateSyntaxError::with_source_code(err.into(), template));
                 }
             };

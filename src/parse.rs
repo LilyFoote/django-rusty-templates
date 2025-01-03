@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use miette::{Diagnostic, SourceSpan};
 use num_bigint::BigInt;
 use pyo3::prelude::*;
@@ -117,18 +119,29 @@ impl PyEq for TagElement {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum FilterType {
     Default(Argument),
-    External(Option<Argument>),
+    External(Py<PyAny>, Option<Argument>),
     Lower,
 }
 
+impl PartialEq for FilterType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Default(a), Self::Default(b)) => a == b,
+            (Self::Lower, Self::Lower) => true,
+            (Self::External(_, _), Self::External(_, _)) => false, // Can't compare PyAny to PyAny
+            _ => false,
+        }
+    }
+}
+
 impl CloneRef for FilterType {
-    fn clone_ref(&self, _py: Python<'_>) -> Self {
+    fn clone_ref(&self, py: Python<'_>) -> Self {
         match self {
             Self::Default(arg) => Self::Default(arg.clone()),
-            Self::External(arg) => Self::External(arg.clone()),
+            Self::External(filter, arg) => Self::External(filter.clone_ref(py), arg.clone()),
             Self::Lower => Self::Lower,
         }
     }
@@ -139,7 +152,13 @@ impl PyEq for FilterType {
     fn py_eq(&self, other: &Self, py: Python<'_>) -> bool {
         match (self, other) {
             (Self::Default(a), Self::Default(b)) => a == b,
-            (Self::External(a), Self::External(b)) => a == b,
+            (Self::External(a1, a2), Self::External(b1, b2)) => {
+                a2 == b2
+                    && a1
+                        .bind(py)
+                        .eq(b1.bind(py))
+                        .expect("__eq__ should not raise")
+            }
             (Self::Lower, Self::Lower) => true,
             _ => false,
         }
@@ -155,12 +174,12 @@ pub struct Filter {
 
 impl Filter {
     pub fn new(
-        template: TemplateString<'_>,
+        parser: &Parser,
         at: (usize, usize),
         left: TagElement,
         right: Option<Argument>,
     ) -> Result<Self, ParseError> {
-        let filter = match template.content(at) {
+        let filter = match parser.template.content(at) {
             "default" => match right {
                 Some(right) => FilterType::Default(right),
                 None => return Err(ParseError::MissingArgument { at: at.into() }),
@@ -173,7 +192,18 @@ impl Filter {
                 }
                 None => FilterType::Lower,
             },
-            _ => FilterType::External(right),
+            external => {
+                let external = match parser.external_filters.get(external) {
+                    Some(external) => external.clone().unbind(),
+                    None => {
+                        return Err(ParseError::InvalidFilter {
+                            at: at.into(),
+                            filter: external.to_string(),
+                        })
+                    }
+                };
+                FilterType::External(external, right)
+            }
         };
         Ok(Self { at, left, filter })
     }
@@ -199,10 +229,10 @@ impl PyEq for Filter {
 }
 
 impl UrlToken {
-    fn parse(&self, template: TemplateString<'_>) -> Result<TagElement, ParseError> {
+    fn parse(&self, parser: &Parser) -> Result<TagElement, ParseError> {
         let content_at = self.content_at();
         let (start, _len) = content_at;
-        let content = template.content(content_at);
+        let content = parser.template.content(content_at);
         match self.token_type {
             UrlTokenType::Numeric => match content.parse::<BigInt>() {
                 Ok(n) => Ok(TagElement::Int(n)),
@@ -213,7 +243,7 @@ impl UrlToken {
             },
             UrlTokenType::Text => Ok(TagElement::Text(Text::new(content_at))),
             UrlTokenType::TranslatedText => Ok(TagElement::TranslatedText(Text::new(content_at))),
-            UrlTokenType::Variable => parse_variable(template, content, content_at, start),
+            UrlTokenType::Variable => parser.parse_variable(content, content_at, start),
         }
     }
 }
@@ -344,6 +374,12 @@ pub enum ParseError {
     #[error(transparent)]
     #[diagnostic(transparent)]
     VariableError(#[from] VariableLexerError),
+    #[error("Invalid filter: '{filter}'")]
+    InvalidFilter {
+        filter: String,
+        #[label("here")]
+        at: SourceSpan,
+    },
     #[error("Invalid numeric literal")]
     InvalidNumber {
         #[label("here")]
@@ -371,76 +407,122 @@ pub enum ParseError {
     },
 }
 
-fn parse_variable(
-    template: TemplateString<'_>,
-    variable: &str,
-    at: (usize, usize),
-    start: usize,
-) -> Result<TagElement, ParseError> {
-    let (variable_token, filter_lexer) = match lex_variable(variable, start)? {
-        None => return Err(ParseError::EmptyVariable { at: at.into() }),
-        Some(t) => t,
-    };
-    let mut var = TagElement::Variable(Variable::new(variable_token.at));
-    for filter_token in filter_lexer {
-        let filter_token = filter_token?;
-        let argument = match filter_token.argument {
-            None => None,
-            Some(ref a) => Some(a.parse(template)?),
-        };
-        let filter = Filter::new(template, filter_token.at, var, argument)?;
-        var = TagElement::Filter(Box::new(filter));
-    }
-    Ok(var)
+#[derive(Error, Debug)]
+pub enum PyParseError {
+    #[error(transparent)]
+    PyErr(#[from] PyErr),
+    #[error(transparent)]
+    ParseError(#[from] ParseError),
 }
 
-pub struct Parser<'t> {
+impl PyParseError {
+    pub fn try_into_parse_error(self) -> Result<ParseError, PyErr> {
+        match self {
+            Self::ParseError(err) => Ok(err),
+            Self::PyErr(err) => Err(err),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn unwrap_parse_error(self) -> ParseError {
+        match self {
+            Self::ParseError(err) => err,
+            Self::PyErr(err) => panic!("{err:?}"),
+        }
+    }
+}
+
+pub struct Parser<'t, 'py> {
     template: TemplateString<'t>,
     lexer: Lexer<'t>,
+    external_filters: HashMap<String, Bound<'py, PyAny>>,
 }
 
-impl<'t> Parser<'t> {
+impl<'t, 'py> Parser<'t, 'py> {
     pub fn new(template: TemplateString<'t>) -> Self {
         Self {
             template,
             lexer: Lexer::new(template),
+            external_filters: HashMap::new(),
         }
     }
 
-    pub fn parse(&mut self) -> Result<Vec<TokenTree>, ParseError> {
+    #[cfg(test)]
+    fn new_with_filters(
+        template: TemplateString<'t>,
+        external_filters: HashMap<String, Bound<'py, PyAny>>,
+    ) -> Self {
+        Self {
+            template,
+            lexer: Lexer::new(template),
+            external_filters,
+        }
+    }
+
+    pub fn parse(&mut self) -> Result<Vec<TokenTree>, PyParseError> {
         let mut nodes = Vec::new();
         while let Some(token) = self.lexer.next() {
             nodes.push(match token.token_type {
                 TokenType::Text => TokenTree::Text(Text::new(token.at)),
                 TokenType::Comment => continue,
-                TokenType::Variable => parse_variable(
-                    self.template,
-                    token.content(self.template),
-                    token.at,
-                    token.at.0 + START_TAG_LEN,
-                )?
-                .into(),
+                TokenType::Variable => self
+                    .parse_variable(
+                        token.content(self.template),
+                        token.at,
+                        token.at.0 + START_TAG_LEN,
+                    )?
+                    .into(),
                 TokenType::Tag => self.parse_tag(token.content(self.template), token.at)?,
             })
         }
         Ok(nodes)
     }
 
-    fn parse_tag(&mut self, tag: &'t str, at: (usize, usize)) -> Result<TokenTree, ParseError> {
-        let (tag, parts) = match lex_tag(tag, at.0 + START_TAG_LEN)? {
-            None => return Err(ParseError::EmptyTag { at: at.into() }),
+    fn parse_variable(
+        &self,
+        variable: &str,
+        at: (usize, usize),
+        start: usize,
+    ) -> Result<TagElement, ParseError> {
+        let (variable_token, filter_lexer) = match lex_variable(variable, start)? {
+            None => return Err(ParseError::EmptyVariable { at: at.into() }),
             Some(t) => t,
         };
-        match self.template.content(tag.at) {
-            "url" => self.parse_url(at, parts),
-            _ => todo!(),
+        let mut var = TagElement::Variable(Variable::new(variable_token.at));
+        for filter_token in filter_lexer {
+            let filter_token = filter_token?;
+            let argument = match filter_token.argument {
+                None => None,
+                Some(ref a) => Some(a.parse(self.template)?),
+            };
+            let filter = Filter::new(self, filter_token.at, var, argument)?;
+            var = TagElement::Filter(Box::new(filter));
         }
+        Ok(var)
+    }
+
+    fn parse_tag(&mut self, tag: &'t str, at: (usize, usize)) -> Result<TokenTree, PyParseError> {
+        let maybe_tag = match lex_tag(tag, at.0 + START_TAG_LEN) {
+            Ok(maybe_tag) => maybe_tag,
+            Err(e) => {
+                let parse_error: ParseError = e.into();
+                return Err(parse_error.into());
+            }
+        };
+        let (tag, parts) = match maybe_tag {
+            None => return Err(ParseError::EmptyTag { at: at.into() }.into()),
+            Some(t) => t,
+        };
+        Ok(match self.template.content(tag.at) {
+            "url" => self.parse_url(at, parts)?,
+            _ => todo!(),
+        })
     }
 
     fn parse_url(&mut self, at: (usize, usize), parts: TagParts) -> Result<TokenTree, ParseError> {
         let mut lexer = UrlLexer::new(self.template, parts);
         let view_name = match lexer.next() {
-            Some(view_token) => view_token?.parse(self.template)?,
+            Some(view_token) => view_token?.parse(self)?,
             None => return Err(ParseError::UrlTagNoArguments { at: at.into() }),
         };
 
@@ -477,7 +559,7 @@ impl<'t> Parser<'t> {
         let mut args = vec![];
         let mut kwargs = vec![];
         for token in tokens {
-            let element = token.parse(self.template)?;
+            let element = token.parse(self)?;
             match token.kwarg {
                 None => args.push(element),
                 Some(at) => {
@@ -536,7 +618,7 @@ mod tests {
     fn test_empty_variable() {
         let template = "{{ }}";
         let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err();
+        let error = parser.parse().unwrap_err().unwrap_parse_error();
         assert_eq!(error, ParseError::EmptyVariable { at: (0, 5).into() });
     }
 
@@ -568,19 +650,34 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = TemplateString("{{ foo|bar }}");
-            let mut parser = Parser::new(template);
+            let mut parser = Parser::new_with_filters(template, filters);
             let nodes = parser.parse().unwrap();
 
             let foo = Variable { at: (3, 3) };
             let bar = TokenTree::Filter(Box::new(Filter {
                 at: (7, 3),
                 left: TagElement::Variable(foo),
-                filter: FilterType::External(None),
+                filter: FilterType::External(py.None(), None),
             }));
             assert!(nodes.py_eq(&vec![bar], py));
             assert_eq!(foo.parts(template).collect::<Vec<_>>(), vec!["foo"]);
         })
+    }
+
+    #[test]
+    fn test_unknown_filter() {
+        let template = TemplateString("{{ foo|bar }}");
+        let mut parser = Parser::new(template);
+        let error = parser.parse().unwrap_err().unwrap_parse_error();
+        assert_eq!(
+            error,
+            ParseError::InvalidFilter {
+                filter: "bar".to_string(),
+                at: (7, 3).into()
+            }
+        );
     }
 
     #[test]
@@ -589,19 +686,23 @@ mod tests {
 
         Python::with_gil(|py| {
             let template = "{{ foo|bar|baz }}";
-            let mut parser = Parser::new(template.into());
+            let filters = HashMap::from([
+                ("bar".to_string(), py.None().bind(py).clone()),
+                ("baz".to_string(), py.None().bind(py).clone()),
+            ]);
+            let mut parser = Parser::new_with_filters(template.into(), filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
             let bar = TagElement::Filter(Box::new(Filter {
                 at: (7, 3),
                 left: foo,
-                filter: FilterType::External(None),
+                filter: FilterType::External(py.None(), None),
             }));
             let baz = TokenTree::Filter(Box::new(Filter {
                 at: (11, 3),
                 left: bar,
-                filter: FilterType::External(None),
+                filter: FilterType::External(py.None(), None),
             }));
             assert!(nodes.py_eq(&vec![baz], py));
         })
@@ -612,8 +713,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = TemplateString("{{ foo|bar:baz }}");
-            let mut parser = Parser::new(template);
+            let mut parser = Parser::new_with_filters(template, filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -621,10 +723,13 @@ mod tests {
             let bar = TokenTree::Filter(Box::new(Filter {
                 at: (7, 3),
                 left: foo,
-                filter: FilterType::External(Some(Argument {
-                    at: (11, 3),
-                    argument_type: ArgumentType::Variable(baz),
-                })),
+                filter: FilterType::External(
+                    py.None(),
+                    Some(Argument {
+                        at: (11, 3),
+                        argument_type: ArgumentType::Variable(baz),
+                    }),
+                ),
             }));
             assert!(nodes.py_eq(&vec![bar], py));
             assert_eq!(baz.parts(template).collect::<Vec<_>>(), vec!["baz"]);
@@ -636,8 +741,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = TemplateString("{{ foo|bar:'baz' }}");
-            let mut parser = Parser::new(template);
+            let mut parser = Parser::new_with_filters(template, filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -645,10 +751,13 @@ mod tests {
             let bar = TokenTree::Filter(Box::new(Filter {
                 at: (7, 3),
                 left: foo,
-                filter: FilterType::External(Some(Argument {
-                    at: (11, 5),
-                    argument_type: ArgumentType::Text(baz),
-                })),
+                filter: FilterType::External(
+                    py.None(),
+                    Some(Argument {
+                        at: (11, 5),
+                        argument_type: ArgumentType::Text(baz),
+                    }),
+                ),
             }));
             assert!(nodes.py_eq(&vec![bar], py));
             assert_eq!(template.content(baz.at), "baz");
@@ -660,8 +769,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = TemplateString("{{ foo|bar:_('baz') }}");
-            let mut parser = Parser::new(template);
+            let mut parser = Parser::new_with_filters(template, filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -669,10 +779,13 @@ mod tests {
             let bar = TokenTree::Filter(Box::new(Filter {
                 at: (7, 3),
                 left: foo,
-                filter: FilterType::External(Some(Argument {
-                    at: (11, 8),
-                    argument_type: ArgumentType::TranslatedText(baz),
-                })),
+                filter: FilterType::External(
+                    py.None(),
+                    Some(Argument {
+                        at: (11, 8),
+                        argument_type: ArgumentType::TranslatedText(baz),
+                    }),
+                ),
             }));
             assert!(nodes.py_eq(&vec![bar], py));
             assert_eq!(template.content(baz.at), "baz");
@@ -684,8 +797,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = "{{ foo|bar:5.2e3 }}";
-            let mut parser = Parser::new(template.into());
+            let mut parser = Parser::new_with_filters(template.into(), filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -696,7 +810,7 @@ mod tests {
             let bar = TokenTree::Filter(Box::new(Filter {
                 at: (7, 3),
                 left: foo,
-                filter: FilterType::External(Some(num)),
+                filter: FilterType::External(py.None(), Some(num)),
             }));
             assert!(nodes.py_eq(&vec![bar], py));
         })
@@ -707,8 +821,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = "{{ foo|bar:99 }}";
-            let mut parser = Parser::new(template.into());
+            let mut parser = Parser::new_with_filters(template.into(), filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -719,7 +834,7 @@ mod tests {
             let bar = TokenTree::Filter(Box::new(Filter {
                 at: (7, 3),
                 left: foo,
-                filter: FilterType::External(Some(num)),
+                filter: FilterType::External(py.None(), Some(num)),
             }));
             assert!(nodes.py_eq(&vec![bar], py));
         })
@@ -730,8 +845,9 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
+            let filters = HashMap::from([("bar".to_string(), py.None().bind(py).clone())]);
             let template = "{{ foo|bar:99999999999999999 }}";
-            let mut parser = Parser::new(template.into());
+            let mut parser = Parser::new_with_filters(template.into(), filters);
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
@@ -742,7 +858,7 @@ mod tests {
             let bar = TokenTree::Filter(Box::new(Filter {
                 at: (7, 3),
                 left: foo,
-                filter: FilterType::External(Some(num)),
+                filter: FilterType::External(py.None(), Some(num)),
             }));
             assert!(nodes.py_eq(&vec![bar], py));
         })
@@ -752,7 +868,7 @@ mod tests {
     fn test_filter_argument_invalid_number() {
         let template = "{{ foo|bar:9.9.9 }}";
         let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err();
+        let error = parser.parse().unwrap_err().unwrap_parse_error();
         assert_eq!(error, ParseError::InvalidNumber { at: (11, 5).into() });
     }
 
@@ -780,7 +896,7 @@ mod tests {
     fn test_filter_default_missing_argument() {
         let template = "{{ foo|default|baz }}";
         let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err();
+        let error = parser.parse().unwrap_err().unwrap_parse_error();
         assert_eq!(error, ParseError::MissingArgument { at: (7, 7).into() });
     }
 
@@ -788,7 +904,7 @@ mod tests {
     fn test_filter_lower_unexpected_argument() {
         let template = "{{ foo|lower:baz }}";
         let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err();
+        let error = parser.parse().unwrap_err().unwrap_parse_error();
         assert_eq!(error, ParseError::UnexpectedArgument { at: (13, 3).into() });
     }
 
@@ -796,7 +912,7 @@ mod tests {
     fn test_variable_lexer_error() {
         let template = "{{ _foo }}";
         let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err();
+        let error = parser.parse().unwrap_err().unwrap_parse_error();
         assert_eq!(
             error,
             ParseError::VariableError(LexerError::InvalidVariableName { at: (3, 4).into() }.into())
@@ -807,7 +923,7 @@ mod tests {
     fn test_parse_empty_tag() {
         let template = "{%  %}";
         let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err();
+        let error = parser.parse().unwrap_err().unwrap_parse_error();
         assert_eq!(error, ParseError::EmptyTag { at: (0, 6).into() });
     }
 
@@ -815,7 +931,7 @@ mod tests {
     fn test_block_error() {
         let template = "{% url'foo' %}";
         let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err();
+        let error = parser.parse().unwrap_err().unwrap_parse_error();
         assert_eq!(
             error,
             ParseError::BlockError(TagLexerError::InvalidTagName { at: (3, 8).into() })
@@ -900,7 +1016,7 @@ mod tests {
     fn test_parse_url_no_arguments() {
         let template = "{% url %}";
         let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err();
+        let error = parser.parse().unwrap_err().unwrap_parse_error();
         assert_eq!(error, ParseError::UrlTagNoArguments { at: (0, 9).into() });
     }
 
@@ -1024,7 +1140,7 @@ mod tests {
     fn test_parse_url_tag_mixed_args_kwargs() {
         let template = "{% url some_view_name 'foo' arg name=arg2 %}";
         let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err();
+        let error = parser.parse().unwrap_err().unwrap_parse_error();
         assert_eq!(
             error,
             ParseError::MixedArgsKwargs {
@@ -1037,7 +1153,7 @@ mod tests {
     fn test_parse_url_tag_invalid_number() {
         let template = "{% url foo 9.9.9 %}";
         let mut parser = Parser::new(template.into());
-        let error = parser.parse().unwrap_err();
+        let error = parser.parse().unwrap_err().unwrap_parse_error();
         assert_eq!(error, ParseError::InvalidNumber { at: (11, 5).into() });
     }
 }

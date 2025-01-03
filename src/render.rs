@@ -124,7 +124,14 @@ impl Render for Filter {
                 Some(left) => Some(left),
                 None => right.resolve(py, template, context)?,
             },
-            FilterType::External(_filter) => todo!(),
+            FilterType::External(filter, arg) => {
+                let arg = match arg {
+                    Some(arg) => arg.resolve(py, template, context)?,
+                    None => None,
+                };
+                let value = filter.bind(py).call1((left, arg))?;
+                Some(Content::Py(value))
+            }
             FilterType::Lower => match left {
                 Some(content) => Some(Content::String(Cow::Owned(content.render(context)?.to_lowercase()))),
                 None => Some(Content::String(Cow::Borrowed(""))),
