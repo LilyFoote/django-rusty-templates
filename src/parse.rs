@@ -12,6 +12,9 @@ use crate::lex::variable::{
 use crate::lex::START_TAG_LEN;
 use crate::types::{CloneRef, TemplateString};
 
+#[cfg(test)]
+use crate::types::PyEq;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Variable {
     at: (usize, usize),
@@ -99,6 +102,21 @@ impl CloneRef for TagElement {
     }
 }
 
+#[cfg(test)]
+impl PyEq for TagElement {
+    fn py_eq(&self, other: &Self, py: Python<'_>) -> bool {
+        match (self, other) {
+            (Self::Int(a), Self::Int(b)) => a == b,
+            (Self::Float(a), Self::Float(b)) => a == b,
+            (Self::Text(a), Self::Text(b)) => a == b,
+            (Self::TranslatedText(a), Self::TranslatedText(b)) => a == b,
+            (Self::Variable(a), Self::Variable(b)) => a == b,
+            (Self::Filter(a), Self::Filter(b)) => a.py_eq(b, py),
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum FilterType {
     Default(Argument),
@@ -112,6 +130,18 @@ impl CloneRef for FilterType {
             Self::Default(arg) => Self::Default(arg.clone()),
             Self::External(arg) => Self::External(arg.clone()),
             Self::Lower => Self::Lower,
+        }
+    }
+}
+
+#[cfg(test)]
+impl PyEq for FilterType {
+    fn py_eq(&self, other: &Self, py: Python<'_>) -> bool {
+        match (self, other) {
+            (Self::Default(a), Self::Default(b)) => a == b,
+            (Self::External(a), Self::External(b)) => a == b,
+            (Self::Lower, Self::Lower) => true,
+            _ => false,
         }
     }
 }
@@ -159,6 +189,15 @@ impl CloneRef for Filter {
     }
 }
 
+#[cfg(test)]
+impl PyEq for Filter {
+    fn py_eq(&self, other: &Self, py: Python<'_>) -> bool {
+        self.at == other.at
+            && self.left.py_eq(&other.left, py)
+            && self.filter.py_eq(&other.filter, py)
+    }
+}
+
 impl UrlToken {
     fn parse(&self, template: TemplateString<'_>) -> Result<TagElement, ParseError> {
         let content_at = self.content_at();
@@ -198,6 +237,16 @@ impl CloneRef for Url {
     }
 }
 
+#[cfg(test)]
+impl PyEq for Url {
+    fn py_eq(&self, other: &Self, py: Python<'_>) -> bool {
+        self.variable == other.variable
+            && self.view_name.py_eq(&other.view_name, py)
+            && self.args.py_eq(&other.args, py)
+            && self.kwargs.py_eq(&other.kwargs, py)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Tag {
     Url(Url),
@@ -207,6 +256,16 @@ impl CloneRef for Tag {
     fn clone_ref(&self, py: Python<'_>) -> Self {
         match self {
             Self::Url(url) => Self::Url(url.clone_ref(py)),
+        }
+    }
+}
+
+#[cfg(test)]
+impl PyEq for Tag {
+    fn py_eq(&self, other: &Self, py: Python<'_>) -> bool {
+        match (self, other) {
+            (Self::Url(a), Self::Url(b)) => a.py_eq(b, py),
+            _ => false,
         }
     }
 }
@@ -228,6 +287,20 @@ impl CloneRef for TokenTree {
             Self::Tag(tag) => Self::Tag(tag.clone_ref(py)),
             Self::Variable(variable) => Self::Variable(*variable),
             Self::Filter(filter) => Self::Filter(Box::new(filter.clone_ref(py))),
+        }
+    }
+}
+
+#[cfg(test)]
+impl PyEq for TokenTree {
+    fn py_eq(&self, other: &Self, py: Python<'_>) -> bool {
+        match (self, other) {
+            (Self::Text(a), Self::Text(b)) => a == b,
+            (Self::TranslatedText(a), Self::TranslatedText(b)) => a == b,
+            (Self::Tag(a), Self::Tag(b)) => a.py_eq(b, py),
+            (Self::Variable(a), Self::Variable(b)) => a == b,
+            (Self::Filter(a), Self::Filter(b)) => a.py_eq(b, py),
+            _ => false,
         }
     }
 }
@@ -492,155 +565,187 @@ mod tests {
 
     #[test]
     fn test_filter() {
-        let template = TemplateString("{{ foo|bar }}");
-        let mut parser = Parser::new(template);
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let foo = Variable { at: (3, 3) };
-        let bar = TokenTree::Filter(Box::new(Filter {
-            at: (7, 3),
-            left: TagElement::Variable(foo),
-            filter: FilterType::External(None),
-        }));
-        assert_eq!(nodes, vec![bar]);
-        assert_eq!(foo.parts(template).collect::<Vec<_>>(), vec!["foo"]);
+        Python::with_gil(|py| {
+            let template = TemplateString("{{ foo|bar }}");
+            let mut parser = Parser::new(template);
+            let nodes = parser.parse().unwrap();
+
+            let foo = Variable { at: (3, 3) };
+            let bar = TokenTree::Filter(Box::new(Filter {
+                at: (7, 3),
+                left: TagElement::Variable(foo),
+                filter: FilterType::External(None),
+            }));
+            assert!(nodes.py_eq(&vec![bar], py));
+            assert_eq!(foo.parts(template).collect::<Vec<_>>(), vec!["foo"]);
+        })
     }
 
     #[test]
     fn test_filter_multiple() {
-        let template = "{{ foo|bar|baz }}";
-        let mut parser = Parser::new(template.into());
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let foo = TagElement::Variable(Variable { at: (3, 3) });
-        let bar = TagElement::Filter(Box::new(Filter {
-            at: (7, 3),
-            left: foo,
-            filter: FilterType::External(None),
-        }));
-        let baz = TokenTree::Filter(Box::new(Filter {
-            at: (11, 3),
-            left: bar,
-            filter: FilterType::External(None),
-        }));
-        assert_eq!(nodes, vec![baz]);
+        Python::with_gil(|py| {
+            let template = "{{ foo|bar|baz }}";
+            let mut parser = Parser::new(template.into());
+            let nodes = parser.parse().unwrap();
+
+            let foo = TagElement::Variable(Variable { at: (3, 3) });
+            let bar = TagElement::Filter(Box::new(Filter {
+                at: (7, 3),
+                left: foo,
+                filter: FilterType::External(None),
+            }));
+            let baz = TokenTree::Filter(Box::new(Filter {
+                at: (11, 3),
+                left: bar,
+                filter: FilterType::External(None),
+            }));
+            assert!(nodes.py_eq(&vec![baz], py));
+        })
     }
 
     #[test]
     fn test_filter_argument() {
-        let template = TemplateString("{{ foo|bar:baz }}");
-        let mut parser = Parser::new(template);
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let foo = TagElement::Variable(Variable { at: (3, 3) });
-        let baz = Variable { at: (11, 3) };
-        let bar = TokenTree::Filter(Box::new(Filter {
-            at: (7, 3),
-            left: foo,
-            filter: FilterType::External(Some(Argument {
-                at: (11, 3),
-                argument_type: ArgumentType::Variable(baz),
-            })),
-        }));
-        assert_eq!(nodes, vec![bar]);
-        assert_eq!(baz.parts(template).collect::<Vec<_>>(), vec!["baz"]);
+        Python::with_gil(|py| {
+            let template = TemplateString("{{ foo|bar:baz }}");
+            let mut parser = Parser::new(template);
+            let nodes = parser.parse().unwrap();
+
+            let foo = TagElement::Variable(Variable { at: (3, 3) });
+            let baz = Variable { at: (11, 3) };
+            let bar = TokenTree::Filter(Box::new(Filter {
+                at: (7, 3),
+                left: foo,
+                filter: FilterType::External(Some(Argument {
+                    at: (11, 3),
+                    argument_type: ArgumentType::Variable(baz),
+                })),
+            }));
+            assert!(nodes.py_eq(&vec![bar], py));
+            assert_eq!(baz.parts(template).collect::<Vec<_>>(), vec!["baz"]);
+        })
     }
 
     #[test]
     fn test_filter_argument_text() {
-        let template = TemplateString("{{ foo|bar:'baz' }}");
-        let mut parser = Parser::new(template);
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let foo = TagElement::Variable(Variable { at: (3, 3) });
-        let baz = Text::new((12, 3));
-        let bar = TokenTree::Filter(Box::new(Filter {
-            at: (7, 3),
-            left: foo,
-            filter: FilterType::External(Some(Argument {
-                at: (11, 5),
-                argument_type: ArgumentType::Text(baz),
-            })),
-        }));
-        assert_eq!(nodes, vec![bar]);
-        assert_eq!(template.content(baz.at), "baz");
+        Python::with_gil(|py| {
+            let template = TemplateString("{{ foo|bar:'baz' }}");
+            let mut parser = Parser::new(template);
+            let nodes = parser.parse().unwrap();
+
+            let foo = TagElement::Variable(Variable { at: (3, 3) });
+            let baz = Text::new((12, 3));
+            let bar = TokenTree::Filter(Box::new(Filter {
+                at: (7, 3),
+                left: foo,
+                filter: FilterType::External(Some(Argument {
+                    at: (11, 5),
+                    argument_type: ArgumentType::Text(baz),
+                })),
+            }));
+            assert!(nodes.py_eq(&vec![bar], py));
+            assert_eq!(template.content(baz.at), "baz");
+        })
     }
 
     #[test]
     fn test_filter_argument_translated_text() {
-        let template = TemplateString("{{ foo|bar:_('baz') }}");
-        let mut parser = Parser::new(template);
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let foo = TagElement::Variable(Variable { at: (3, 3) });
-        let baz = Text::new((14, 3));
-        let bar = TokenTree::Filter(Box::new(Filter {
-            at: (7, 3),
-            left: foo,
-            filter: FilterType::External(Some(Argument {
-                at: (11, 8),
-                argument_type: ArgumentType::TranslatedText(baz),
-            })),
-        }));
-        assert_eq!(nodes, vec![bar]);
-        assert_eq!(template.content(baz.at), "baz");
+        Python::with_gil(|py| {
+            let template = TemplateString("{{ foo|bar:_('baz') }}");
+            let mut parser = Parser::new(template);
+            let nodes = parser.parse().unwrap();
+
+            let foo = TagElement::Variable(Variable { at: (3, 3) });
+            let baz = Text::new((14, 3));
+            let bar = TokenTree::Filter(Box::new(Filter {
+                at: (7, 3),
+                left: foo,
+                filter: FilterType::External(Some(Argument {
+                    at: (11, 8),
+                    argument_type: ArgumentType::TranslatedText(baz),
+                })),
+            }));
+            assert!(nodes.py_eq(&vec![bar], py));
+            assert_eq!(template.content(baz.at), "baz");
+        })
     }
 
     #[test]
     fn test_filter_argument_float() {
-        let template = "{{ foo|bar:5.2e3 }}";
-        let mut parser = Parser::new(template.into());
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let foo = TagElement::Variable(Variable { at: (3, 3) });
-        let num = Argument {
-            at: (11, 5),
-            argument_type: ArgumentType::Float(5.2e3),
-        };
-        let bar = TokenTree::Filter(Box::new(Filter {
-            at: (7, 3),
-            left: foo,
-            filter: FilterType::External(Some(num)),
-        }));
-        assert_eq!(nodes, vec![bar]);
+        Python::with_gil(|py| {
+            let template = "{{ foo|bar:5.2e3 }}";
+            let mut parser = Parser::new(template.into());
+            let nodes = parser.parse().unwrap();
+
+            let foo = TagElement::Variable(Variable { at: (3, 3) });
+            let num = Argument {
+                at: (11, 5),
+                argument_type: ArgumentType::Float(5.2e3),
+            };
+            let bar = TokenTree::Filter(Box::new(Filter {
+                at: (7, 3),
+                left: foo,
+                filter: FilterType::External(Some(num)),
+            }));
+            assert!(nodes.py_eq(&vec![bar], py));
+        })
     }
 
     #[test]
     fn test_filter_argument_int() {
-        let template = "{{ foo|bar:99 }}";
-        let mut parser = Parser::new(template.into());
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let foo = TagElement::Variable(Variable { at: (3, 3) });
-        let num = Argument {
-            at: (11, 2),
-            argument_type: ArgumentType::Int(99.into()),
-        };
-        let bar = TokenTree::Filter(Box::new(Filter {
-            at: (7, 3),
-            left: foo,
-            filter: FilterType::External(Some(num)),
-        }));
-        assert_eq!(nodes, vec![bar]);
+        Python::with_gil(|py| {
+            let template = "{{ foo|bar:99 }}";
+            let mut parser = Parser::new(template.into());
+            let nodes = parser.parse().unwrap();
+
+            let foo = TagElement::Variable(Variable { at: (3, 3) });
+            let num = Argument {
+                at: (11, 2),
+                argument_type: ArgumentType::Int(99.into()),
+            };
+            let bar = TokenTree::Filter(Box::new(Filter {
+                at: (7, 3),
+                left: foo,
+                filter: FilterType::External(Some(num)),
+            }));
+            assert!(nodes.py_eq(&vec![bar], py));
+        })
     }
 
     #[test]
     fn test_filter_argument_bigint() {
-        let template = "{{ foo|bar:99999999999999999 }}";
-        let mut parser = Parser::new(template.into());
-        let nodes = parser.parse().unwrap();
+        pyo3::prepare_freethreaded_python();
 
-        let foo = TagElement::Variable(Variable { at: (3, 3) });
-        let num = Argument {
-            at: (11, 17),
-            argument_type: ArgumentType::Int("99999999999999999".parse::<BigInt>().unwrap()),
-        };
-        let bar = TokenTree::Filter(Box::new(Filter {
-            at: (7, 3),
-            left: foo,
-            filter: FilterType::External(Some(num)),
-        }));
-        assert_eq!(nodes, vec![bar]);
+        Python::with_gil(|py| {
+            let template = "{{ foo|bar:99999999999999999 }}";
+            let mut parser = Parser::new(template.into());
+            let nodes = parser.parse().unwrap();
+
+            let foo = TagElement::Variable(Variable { at: (3, 3) });
+            let num = Argument {
+                at: (11, 17),
+                argument_type: ArgumentType::Int("99999999999999999".parse::<BigInt>().unwrap()),
+            };
+            let bar = TokenTree::Filter(Box::new(Filter {
+                at: (7, 3),
+                left: foo,
+                filter: FilterType::External(Some(num)),
+            }));
+            assert!(nodes.py_eq(&vec![bar], py));
+        })
     }
 
     #[test]

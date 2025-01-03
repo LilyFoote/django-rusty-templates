@@ -53,3 +53,39 @@ where
             .collect()
     }
 }
+
+#[cfg(test)]
+pub trait PyEq {
+    fn py_eq(&self, other: &Self, py: Python<'_>) -> bool;
+}
+
+#[cfg(test)]
+impl<T> PyEq for Vec<T>
+where
+    T: PyEq,
+{
+    fn py_eq(&self, other: &Self, py: Python<'_>) -> bool {
+        for (l, r) in self.iter().zip(other.iter()) {
+            if !l.py_eq(r, py) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+#[cfg(test)]
+impl<K, V> PyEq for Vec<(K, V)>
+where
+    K: Eq,
+    V: PyEq,
+{
+    fn py_eq(&self, other: &Self, py: Python<'_>) -> bool {
+        for ((l1, l2), (r1, r2)) in self.iter().zip(other.iter()) {
+            if l1 != r1 || !l2.py_eq(r2, py) {
+                return false;
+            }
+        }
+        true
+    }
+}
