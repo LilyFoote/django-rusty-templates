@@ -62,6 +62,7 @@ impl PyRenderError {
     }
 }
 
+#[derive(Debug)]
 enum ContentString<'t> {
     String(Cow<'t, str>),
     HtmlSafe(Cow<'t, str>),
@@ -309,6 +310,19 @@ impl Render for Filter {
                 ),
                 None => Some(Content::String(Cow::Borrowed(""))),
             },
+            FilterType::Safe => match left {
+                Some(content) => match content {
+                    Content::HtmlSafe(content) => Some(Content::HtmlSafe(content)),
+                    Content::String(content) => Some(Content::HtmlSafe(content)),
+                    Content::Int(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
+                    Content::Float(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
+                    Content::Py(object) => {
+                        let content = object.str()?.extract::<String>()?;
+                        Some(Content::HtmlSafe(Cow::Owned(content)))
+                    }
+                }
+                None => Some(Content::HtmlSafe(Cow::Borrowed(""))),
+            }
         })
     }
 }

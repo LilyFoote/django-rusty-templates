@@ -162,15 +162,17 @@ pub enum FilterType {
     Default(Argument),
     External(Py<PyAny>, Option<Argument>),
     Lower,
+    Safe,
 }
 
 impl PartialEq for FilterType {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Add(a), Self::Add(b)) => a == b,
+            (Self::AddSlashes, Self::AddSlashes) => true,
             (Self::Default(a), Self::Default(b)) => a == b,
             (Self::Lower, Self::Lower) => true,
-            (Self::AddSlashes, Self::AddSlashes) => true,
+            (Self::Safe, Self::Safe) => true,
             (Self::External(_, _), Self::External(_, _)) => false, // Can't compare PyAny to PyAny
             _ => false,
         }
@@ -185,6 +187,7 @@ impl CloneRef for FilterType {
             Self::Default(arg) => Self::Default(arg.clone()),
             Self::External(filter, arg) => Self::External(filter.clone_ref(py), arg.clone()),
             Self::Lower => Self::Lower,
+            Self::Safe => Self::Safe,
         }
     }
 }
@@ -204,6 +207,7 @@ impl PyEq for FilterType {
                         .expect("__eq__ should not raise")
             }
             (Self::Lower, Self::Lower) => true,
+            (Self::Safe, Self::Safe) => true,
             _ => false,
         }
     }
@@ -249,6 +253,15 @@ impl Filter {
                     })
                 }
                 None => FilterType::Lower,
+            },
+            "safe" => match right {
+                Some(right) => {
+                    return Err(ParseError::UnexpectedArgument {
+                        filter: "safe",
+                        at: right.at.into(),
+                    })
+                }
+                None => FilterType::Safe,
             },
             external => {
                 let external = match parser.external_filters.get(external) {
@@ -1611,6 +1624,11 @@ mod tests {
             let cloned = add_slashes.clone_ref(py);
             assert_eq!(add_slashes, cloned);
             assert!(add_slashes.py_eq(&cloned, py));
+
+            let safe = FilterType::Safe;
+            let cloned = safe.clone_ref(py);
+            assert_eq!(safe, cloned);
+            assert!(safe.py_eq(&cloned, py));
         })
     }
 }
