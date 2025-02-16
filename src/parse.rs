@@ -160,6 +160,7 @@ pub enum FilterType {
     Add(Argument),
     AddSlashes,
     Default(Argument),
+    Escape,
     External(Py<PyAny>, Option<Argument>),
     Lower,
     Safe,
@@ -171,6 +172,7 @@ impl PartialEq for FilterType {
             (Self::Add(a), Self::Add(b)) => a == b,
             (Self::AddSlashes, Self::AddSlashes) => true,
             (Self::Default(a), Self::Default(b)) => a == b,
+            (Self::Escape, Self::Escape) => true,
             (Self::Lower, Self::Lower) => true,
             (Self::Safe, Self::Safe) => true,
             (Self::External(_, _), Self::External(_, _)) => false, // Can't compare PyAny to PyAny
@@ -185,6 +187,7 @@ impl CloneRef for FilterType {
             Self::Add(arg) => Self::Add(arg.clone()),
             Self::AddSlashes => Self::AddSlashes,
             Self::Default(arg) => Self::Default(arg.clone()),
+            Self::Escape => Self::Escape,
             Self::External(filter, arg) => Self::External(filter.clone_ref(py), arg.clone()),
             Self::Lower => Self::Lower,
             Self::Safe => Self::Safe,
@@ -199,6 +202,7 @@ impl PyEq for FilterType {
             (Self::Add(a), Self::Add(b)) => a == b,
             (Self::AddSlashes, Self::AddSlashes) => true,
             (Self::Default(a), Self::Default(b)) => a == b,
+            (Self::Escape, Self::Escape) => true,
             (Self::External(a1, a2), Self::External(b1, b2)) => {
                 a2 == b2
                     && a1
@@ -244,6 +248,15 @@ impl Filter {
             "default" => match right {
                 Some(right) => FilterType::Default(right),
                 None => return Err(ParseError::MissingArgument { at: at.into() }),
+            },
+            "escape" => match right {
+                Some(right) => {
+                    return Err(ParseError::UnexpectedArgument {
+                        filter: "escape",
+                        at: right.at.into(),
+                    })
+                }
+                None => FilterType::Escape,
             },
             "lower" => match right {
                 Some(right) => {
@@ -1629,6 +1642,11 @@ mod tests {
             let cloned = safe.clone_ref(py);
             assert_eq!(safe, cloned);
             assert!(safe.py_eq(&cloned, py));
+
+            let escape = FilterType::Escape;
+            let cloned = escape.clone_ref(py);
+            assert_eq!(escape, cloned);
+            assert!(escape.py_eq(&cloned, py));
         })
     }
 }

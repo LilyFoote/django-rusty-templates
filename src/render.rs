@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use html_escape::encode_quoted_attribute;
+use html_escape::{encode_quoted_attribute, encode_quoted_attribute_to_string};
 use miette::{Diagnostic, SourceSpan};
 use num_bigint::{BigInt, ToBigInt};
 use pyo3::exceptions::PyAttributeError;
@@ -294,6 +294,27 @@ impl Render for Filter {
                 Some(left) => Some(left),
                 None => right.resolve(py, template, context)?,
             },
+            FilterType::Escape => {
+                match left {
+                    Some(content) => match content {
+                        Content::HtmlSafe(content) => Some(Content::HtmlSafe(content)),
+                        Content::String(content) => {
+                            let mut encoded = String::new();
+                            encode_quoted_attribute_to_string(&content, &mut encoded);
+                            Some(Content::HtmlSafe(Cow::Owned(encoded)))
+                        },
+                        Content::Int(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
+                        Content::Float(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
+                        Content::Py(object) => {
+                            let content = object.str()?.extract::<String>()?;
+                            let mut encoded = String::new();
+                            encode_quoted_attribute_to_string(&content, &mut encoded);
+                            Some(Content::HtmlSafe(Cow::Owned(encoded)))
+                        }
+                    },
+                    None => Some(Content::HtmlSafe(Cow::Borrowed(""))),
+                }
+            }
             FilterType::External(filter, arg) => {
                 let arg = match arg {
                     Some(arg) => arg.resolve(py, template, context)?,
