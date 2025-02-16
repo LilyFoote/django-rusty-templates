@@ -95,3 +95,14 @@ def test_autoescape_filter_lower():
     expected = "&lt;p&gt;hello world!&lt;/p&gt;"
     assert django_template.render({"html": html}) == expected
     assert rust_template.render({"html": html}) == expected
+
+
+def test_safe_lower():
+    html = "<p>Hello World!</p>"
+    template = "{{ html|safe|lower }}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    expected = "<p>hello world!</p>"
+    assert django_template.render({"html": html}) == expected
+    assert rust_template.render({"html": html}) == expected
