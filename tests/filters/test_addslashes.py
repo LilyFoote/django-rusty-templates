@@ -25,18 +25,12 @@ def test_addslashes01(self):
     self.assertEqual(output, r"<a>\' <a>\'")
 
 
-@pytest.mark.xfail(reason="autoescape not there yet")
-def test_addslashes02(self):
-    """@setup({"addslashes02": "{{ a|addslashes }} {{ b|addslashes }}"})"""
+def test_addslashes02(assert_render):
     template = "{{ a|addslashes }} {{ b|addslashes }}"
+    context = {"a": "<a>'", "b": mark_safe("<a>'")}
+    expected = r"&lt;a&gt;\&#x27; <a>\'"
 
-    django_template = engines["django"].from_string(template)  # noqa
-    rust_template = engines["rusty"].from_string(template)  # noqa
-
-    output = self.engine.render_to_string(
-        "addslashes02", {"a": "<a>'", "b": mark_safe("<a>'")}
-    )
-    self.assertEqual(output, r"&lt;a&gt;\&#x27; <a>\'")
+    assert_render(template, context, expected)
 
 
 def test_quotes(assert_render):
