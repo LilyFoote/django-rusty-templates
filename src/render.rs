@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use html_escape::encode_quoted_attribute;
+use html_escape::{encode_quoted_attribute, encode_quoted_attribute_to_string};
 use miette::{Diagnostic, SourceSpan};
 use num_bigint::{BigInt, ToBigInt};
 use pyo3::exceptions::PyAttributeError;
@@ -27,6 +27,7 @@ pub struct Context {
 pub enum Content<'t, 'py> {
     Py(Bound<'py, PyAny>),
     String(Cow<'t, str>),
+    HtmlSafe(Cow<'t, str>),
     Float(f64),
     Int(BigInt),
 }
@@ -61,9 +62,34 @@ impl PyRenderError {
     }
 }
 
-fn render_python(value: Bound<'_, PyAny>, context: &Context) -> PyResult<String> {
+#[derive(Debug)]
+enum ContentString<'t> {
+    String(Cow<'t, str>),
+    HtmlSafe(Cow<'t, str>),
+}
+
+#[allow(clippy::needless_lifetimes)] // https://github.com/rust-lang/rust-clippy/issues/13923
+impl<'t, 'py> ContentString<'t> {
+    fn content(self) -> Cow<'t, str> {
+        match self {
+            Self::String(content) => content,
+            Self::HtmlSafe(content) => content,
+        }
+    }
+
+    fn map_content(self, f: impl FnOnce(Cow<'t, str>) -> Cow<'t, str>) -> Content<'t, 'py> {
+        match self {
+            Self::String(content) => Content::String(f(content)),
+            Self::HtmlSafe(content) => Content::HtmlSafe(f(content)),
+        }
+    }
+}
+
+fn resolve_python<'t>(value: Bound<'_, PyAny>, context: &Context) -> PyResult<ContentString<'t>> {
     if !context.autoescape {
-        return value.str()?.extract::<String>();
+        return Ok(ContentString::String(
+            value.str()?.extract::<String>()?.into(),
+        ));
     };
     let py = value.py();
 
@@ -71,30 +97,47 @@ fn render_python(value: Bound<'_, PyAny>, context: &Context) -> PyResult<String>
         true => value,
         false => value.str()?.into_any(),
     };
-    match value
-        .getattr(intern!(py, "__html__"))
-        .ok_or_isinstance_of::<PyAttributeError>(py)?
-    {
-        Ok(html) => html.call0()?.extract::<String>(),
-        Err(_) => Ok(encode_quoted_attribute(&value.str()?.extract::<String>()?).to_string()),
-    }
+    Ok(ContentString::HtmlSafe(
+        match value
+            .getattr(intern!(py, "__html__"))
+            .ok_or_isinstance_of::<PyAttributeError>(py)?
+        {
+            Ok(html) => html.call0()?.extract::<String>()?,
+            Err(_) => encode_quoted_attribute(&value.str()?.extract::<String>()?).to_string(),
+        }
+        .into(),
+    ))
 }
 
 impl<'t, 'py> Content<'t, 'py> {
     fn render(self, context: &Context) -> PyResult<Cow<'t, str>> {
-        let content = match self {
-            Self::Py(content) => render_python(content, context)?,
-            Self::String(content) => return Ok(content),
-            Self::Float(content) => content.to_string(),
-            Self::Int(content) => content.to_string(),
-        };
-        Ok(Cow::Owned(content))
+        Ok(match self {
+            Self::Py(content) => resolve_python(content, context)?.content(),
+            Self::String(content) => content,
+            Self::HtmlSafe(content) => content,
+            Self::Float(content) => content.to_string().into(),
+            Self::Int(content) => content.to_string().into(),
+        })
+    }
+
+    fn resolve_string(self, context: &Context) -> PyResult<ContentString<'t>> {
+        Ok(match self {
+            Self::String(content) => ContentString::String(content),
+            Self::HtmlSafe(content) => ContentString::HtmlSafe(content),
+            Self::Float(content) => ContentString::String(content.to_string().into()),
+            Self::Int(content) => ContentString::String(content.to_string().into()),
+            Self::Py(content) => return resolve_python(content, context),
+        })
     }
 
     fn to_bigint(&self) -> Option<BigInt> {
         match self {
             Self::Int(left) => Some(left.clone()),
             Self::String(left) => match left.parse::<BigInt>() {
+                Ok(left) => Some(left),
+                Err(_) => None,
+            },
+            Self::HtmlSafe(left) => match left.parse::<BigInt>() {
                 Ok(left) => Some(left),
                 Err(_) => None,
             },
@@ -115,8 +158,8 @@ impl<'t, 'py> Content<'t, 'py> {
         }
     }
 
-    fn to_py(&self, py: Python<'py>) -> Bound<'py, PyAny> {
-        match self {
+    fn to_py(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        Ok(match self {
             Self::Py(object) => object.clone(),
             Self::Int(i) => i
                 .into_pyobject(py)
@@ -130,7 +173,15 @@ impl<'t, 'py> Content<'t, 'py> {
                 .into_pyobject(py)
                 .expect("A string can always be converted to a Python str.")
                 .into_any(),
-        }
+            Self::HtmlSafe(s) => {
+                let string = s
+                    .into_pyobject(py)
+                    .expect("A string can always be converted to a Python str.");
+                let safestring = py.import(intern!(py, "django.utils.safestring"))?;
+                let mark_safe = safestring.getattr(intern!(py, "mark_safe"))?;
+                mark_safe.call1((string,))?
+            }
+        })
     }
 }
 
@@ -220,8 +271,8 @@ impl Render for Filter {
                 match (left.to_bigint(), right.to_bigint()) {
                     (Some(left), Some(right)) => return Ok(Some(Content::Int(left + right))),
                     _ => {
-                        let left = left.to_py(py);
-                        let right = right.to_py(py);
+                        let left = left.to_py(py)?;
+                        let right = right.to_py(py)?;
                         match left.add(right) {
                             Ok(sum) => return Ok(Some(Content::Py(sum))),
                             Err(_) => return Ok(None),
@@ -243,6 +294,27 @@ impl Render for Filter {
                 Some(left) => Some(left),
                 None => right.resolve(py, template, context)?,
             },
+            FilterType::Escape => {
+                match left {
+                    Some(content) => match content {
+                        Content::HtmlSafe(content) => Some(Content::HtmlSafe(content)),
+                        Content::String(content) => {
+                            let mut encoded = String::new();
+                            encode_quoted_attribute_to_string(&content, &mut encoded);
+                            Some(Content::HtmlSafe(Cow::Owned(encoded)))
+                        },
+                        Content::Int(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
+                        Content::Float(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
+                        Content::Py(object) => {
+                            let content = object.str()?.extract::<String>()?;
+                            let mut encoded = String::new();
+                            encode_quoted_attribute_to_string(&content, &mut encoded);
+                            Some(Content::HtmlSafe(Cow::Owned(encoded)))
+                        }
+                    },
+                    None => Some(Content::HtmlSafe(Cow::Borrowed(""))),
+                }
+            }
             FilterType::External(filter, arg) => {
                 let arg = match arg {
                     Some(arg) => arg.resolve(py, template, context)?,
@@ -256,10 +328,25 @@ impl Render for Filter {
                 Some(Content::Py(value))
             }
             FilterType::Lower => match left {
-                Some(content) => Some(Content::String(Cow::Owned(
-                    content.render(context)?.to_lowercase(),
-                ))),
+                Some(content) => Some(
+                    content
+                        .resolve_string(context)?
+                        .map_content(|content| Cow::Owned(content.to_lowercase())),
+                ),
                 None => Some(Content::String(Cow::Borrowed(""))),
+            },
+            FilterType::Safe => match left {
+                Some(content) => match content {
+                    Content::HtmlSafe(content) => Some(Content::HtmlSafe(content)),
+                    Content::String(content) => Some(Content::HtmlSafe(content)),
+                    Content::Int(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
+                    Content::Float(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
+                    Content::Py(object) => {
+                        let content = object.str()?.extract::<String>()?;
+                        Some(Content::HtmlSafe(Cow::Owned(content)))
+                    }
+                },
+                None => Some(Content::HtmlSafe(Cow::Borrowed(""))),
             },
         })
     }
@@ -352,11 +439,13 @@ impl Render for Text {
         &self,
         _py: Python<'py>,
         template: TemplateString<'t>,
-        _context: &mut Context,
+        context: &mut Context,
     ) -> Result<Option<Content<'t, 'py>>, PyRenderError> {
-        Ok(Some(Content::String(Cow::Borrowed(
-            template.content(self.at),
-        ))))
+        let resolved = Cow::Borrowed(template.content(self.at));
+        Ok(Some(match context.autoescape {
+            false => Content::String(resolved),
+            true => Content::HtmlSafe(resolved),
+        }))
     }
 }
 

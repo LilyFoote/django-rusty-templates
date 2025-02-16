@@ -136,3 +136,14 @@ def test_add_missing_argument():
    ·         ╰── here
    ╰────
 """
+
+
+def test_add_safe():
+    template = "{{ html|safe|add:'<p>More HTML</p>' }}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    html = "<p>Some HTML</p>"
+    expected = "<p>Some HTML</p><p>More HTML</p>"
+    assert django_template.render({"html": html}) == expected
+    assert rust_template.render({"html": html}) == expected
