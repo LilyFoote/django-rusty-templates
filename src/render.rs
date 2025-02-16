@@ -158,8 +158,8 @@ impl<'t, 'py> Content<'t, 'py> {
         }
     }
 
-    fn to_py(&self, py: Python<'py>) -> Bound<'py, PyAny> {
-        match self {
+    fn to_py(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        Ok(match self {
             Self::Py(object) => object.clone(),
             Self::Int(i) => i
                 .into_pyobject(py)
@@ -173,11 +173,15 @@ impl<'t, 'py> Content<'t, 'py> {
                 .into_pyobject(py)
                 .expect("A string can always be converted to a Python str.")
                 .into_any(),
-            Self::HtmlSafe(s) => s
-                .into_pyobject(py)
-                .expect("A string can always be converted to a Python str.")
-                .into_any(),
-        }
+            Self::HtmlSafe(s) => {
+                let string = s
+                    .into_pyobject(py)
+                    .expect("A string can always be converted to a Python str.");
+                let safestring = py.import(intern!(py, "django.utils.safestring"))?;
+                let mark_safe = safestring.getattr(intern!(py, "mark_safe"))?;
+                mark_safe.call1((string,))?
+            }
+        })
     }
 }
 
@@ -267,8 +271,8 @@ impl Render for Filter {
                 match (left.to_bigint(), right.to_bigint()) {
                     (Some(left), Some(right)) => return Ok(Some(Content::Int(left + right))),
                     _ => {
-                        let left = left.to_py(py);
-                        let right = right.to_py(py);
+                        let left = left.to_py(py)?;
+                        let right = right.to_py(py)?;
                         match left.add(right) {
                             Ok(sum) => return Ok(Some(Content::Py(sum))),
                             Err(_) => return Ok(None),
@@ -320,9 +324,9 @@ impl Render for Filter {
                         let content = object.str()?.extract::<String>()?;
                         Some(Content::HtmlSafe(Cow::Owned(content)))
                     }
-                }
+                },
                 None => Some(Content::HtmlSafe(Cow::Borrowed(""))),
-            }
+            },
         })
     }
 }
@@ -414,11 +418,13 @@ impl Render for Text {
         &self,
         _py: Python<'py>,
         template: TemplateString<'t>,
-        _context: &mut Context,
+        context: &mut Context,
     ) -> Result<Option<Content<'t, 'py>>, PyRenderError> {
-        Ok(Some(Content::String(Cow::Borrowed(
-            template.content(self.at),
-        ))))
+        let resolved = Cow::Borrowed(template.content(self.at));
+        Ok(Some(match context.autoescape {
+            false => Content::String(resolved),
+            true => Content::HtmlSafe(resolved),
+        }))
     }
 }
 
