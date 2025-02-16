@@ -4,7 +4,6 @@ https://github.com/django/django/blob/main/tests/template_tests/filter_tests/tes
 """
 
 import pytest
-from django.template import engines
 from django.utils.safestring import mark_safe
 
 
@@ -31,8 +30,8 @@ def test_addslashes02(self):
     """@setup({"addslashes02": "{{ a|addslashes }} {{ b|addslashes }}"})"""
     template = "{{ a|addslashes }} {{ b|addslashes }}"
 
-    django_template = engines["django"].from_string(template)
-    rust_template = engines["rusty"].from_string(template)
+    django_template = engines["django"].from_string(template)  # noqa
+    rust_template = engines["rusty"].from_string(template)  # noqa
 
     output = self.engine.render_to_string(
         "addslashes02", {"a": "<a>'", "b": mark_safe("<a>'")}

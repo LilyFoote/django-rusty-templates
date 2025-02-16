@@ -37,6 +37,9 @@ jobs:
       run: |
         source <(cargo llvm-cov show-env --export-prefix)
         .venv/bin/maturin develop
+    - name: Lint test files
+      run: |
+        .venv/bin/ruff check
     - name: Test with pytest
       run: |
         source <(cargo llvm-cov show-env --export-prefix)

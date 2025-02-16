@@ -1,7 +1,7 @@
 import pytest
 from django.template import engines
-from django.template.exceptions import TemplateSyntaxError
 from django.template.base import VariableDoesNotExist
+from django.template.exceptions import TemplateSyntaxError
 
 
 def test_add_integers():
@@ -121,12 +121,12 @@ def test_add_missing_argument():
     template = "{{ foo|add }}"
 
     with pytest.raises(TemplateSyntaxError) as exc_info:
-        django_template = engines["django"].from_string(template)
+        engines["django"].from_string(template)
 
     assert str(exc_info.value) == "add requires 2 arguments, 1 provided"
 
     with pytest.raises(TemplateSyntaxError) as exc_info:
-        rust_template = engines["rusty"].from_string(template)
+        engines["rusty"].from_string(template)
 
     assert str(exc_info.value) == """
   × Expected an argument

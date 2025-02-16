@@ -2,3 +2,4 @@ django
 maturin
 pytest
 pytest-django
+ruff
