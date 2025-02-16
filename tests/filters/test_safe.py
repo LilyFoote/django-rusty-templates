@@ -70,3 +70,14 @@ def test_safe_float():
 
     assert django_template.render({}) == "1.6"
     assert rust_template.render({}) == "1.6"
+
+
+def test_safe_escaped():
+    template = "{{ html|escape|safe }}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    html = "<p>Hello World!</p>"
+    escaped = "&lt;p&gt;Hello World!&lt;/p&gt;"
+    assert django_template.render({"html": html}) == escaped
+    assert rust_template.render({"html": html}) == escaped

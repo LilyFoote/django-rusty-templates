@@ -43,3 +43,32 @@ def test_escape_missing_value():
 
     assert django_template.render({}) == ""
     assert rust_template.render({}) == ""
+
+
+def test_already_escaped():
+    template = "{{ html|escape|escape }}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    html = "<p>Hello World!</p>"
+    escaped = "&lt;p&gt;Hello World!&lt;/p&gt;"
+    assert django_template.render({"html": html}) == escaped
+    assert rust_template.render({"html": html}) == escaped
+
+
+def test_escape_integer():
+    template = "{{ num|default:100|escape }}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    assert django_template.render({}) == "100"
+    assert rust_template.render({}) == "100"
+
+
+def test_escape_float():
+    template = "{{ num|default:1.6|escape }}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    assert django_template.render({}) == "1.6"
+    assert rust_template.render({}) == "1.6"
