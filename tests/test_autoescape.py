@@ -73,3 +73,36 @@ def test_autoescape_invalid_html_method():
         django_template.render({"broken": broken})
     with pytest.raises(ZeroDivisionError):
         rust_template.render({"broken": broken})
+
+
+def test_mark_safe_filter_lower():
+    html = mark_safe("<p>Hello World!</p>")
+    template = "{{ html|lower }}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    expected = "<p>hello world!</p>"
+    assert django_template.render({"html": html}) == expected
+    assert rust_template.render({"html": html}) == expected
+
+
+def test_autoescape_filter_lower():
+    html = "<p>Hello World!</p>"
+    template = "{{ html|lower }}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    expected = "&lt;p&gt;hello world!&lt;/p&gt;"
+    assert django_template.render({"html": html}) == expected
+    assert rust_template.render({"html": html}) == expected
+
+
+def test_safe_lower():
+    html = "<p>Hello World!</p>"
+    template = "{{ html|safe|lower }}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    expected = "<p>hello world!</p>"
+    assert django_template.render({"html": html}) == expected
+    assert rust_template.render({"html": html}) == expected
