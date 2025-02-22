@@ -6,6 +6,13 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use thiserror::Error;
 
+use crate::filters::AddFilter;
+use crate::filters::AddSlashesFilter;
+use crate::filters::CapfirstFilter;
+use crate::filters::DefaultFilter;
+use crate::filters::ExternalFilter;
+use crate::filters::FilterType;
+use crate::filters::LowerFilter;
 use crate::lex::core::{Lexer, TokenType};
 use crate::lex::load::{LoadLexer, LoadToken};
 use crate::lex::tag::{lex_tag, TagLexerError, TagParts};
@@ -14,86 +21,14 @@ use crate::lex::variable::{
     lex_variable, Argument as ArgumentToken, ArgumentType as ArgumentTokenType, VariableLexerError,
 };
 use crate::lex::START_TAG_LEN;
+use crate::types::Argument;
+use crate::types::ArgumentType;
+use crate::types::Text;
+use crate::types::Variable;
 use crate::types::{CloneRef, TemplateString};
 
 #[cfg(test)]
 use crate::types::PyEq;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Variable {
-    pub at: (usize, usize),
-}
-
-impl<'t> Variable {
-    pub fn new(at: (usize, usize)) -> Self {
-        Self { at }
-    }
-
-    pub fn parts(
-        &self,
-        template: TemplateString<'t>,
-    ) -> impl Iterator<Item = (&'t str, (usize, usize))> {
-        let start = self.at.0;
-        let variable = template.content(self.at);
-        PartsIterator { variable, start }
-    }
-}
-
-struct PartsIterator<'t> {
-    variable: &'t str,
-    start: usize,
-}
-
-impl<'t> Iterator for PartsIterator<'t> {
-    type Item = (&'t str, (usize, usize));
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.variable.is_empty() {
-            return None;
-        }
-
-        match self.variable.find('.') {
-            Some(index) => {
-                let part = &self.variable[..index];
-                let at = (self.start, index);
-                self.start += index + 1;
-                self.variable = &self.variable[index + 1..];
-                Some((part, at))
-            }
-            None => {
-                let part = self.variable;
-                self.variable = "";
-                Some((part, (self.start, part.len())))
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Text {
-    pub at: (usize, usize),
-}
-
-impl Text {
-    pub fn new(at: (usize, usize)) -> Self {
-        Self { at }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum ArgumentType {
-    Variable(Variable),
-    Text(Text),
-    TranslatedText(Text),
-    Int(BigInt),
-    Float(f64),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Argument {
-    pub at: (usize, usize),
-    pub argument_type: ArgumentType,
-}
 
 impl ArgumentToken {
     fn parse(&self, template: TemplateString<'_>) -> Result<Argument, ParseError> {
@@ -155,25 +90,15 @@ impl PyEq for TagElement {
     }
 }
 
-#[derive(Debug)]
-pub enum FilterType {
-    Add(Argument),
-    AddSlashes,
-    Capfirst,
-    Default(Argument),
-    External(Py<PyAny>, Option<Argument>),
-    Lower,
-}
-
 impl PartialEq for FilterType {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Add(a), Self::Add(b)) => a == b,
-            (Self::AddSlashes, Self::AddSlashes) => true,
-            (Self::Capfirst, Self::Capfirst) => true,
-            (Self::Default(a), Self::Default(b)) => a == b,
-            (Self::Lower, Self::Lower) => true,
-            (Self::External(_, _), Self::External(_, _)) => false, // Can't compare PyAny to PyAny
+            (Self::Add(a), Self::Add(b)) => a.argument == b.argument,
+            (Self::AddSlashes(_), Self::AddSlashes(_)) => true,
+            (Self::Capfirst(_), Self::Capfirst(_)) => true,
+            (Self::Default(a), Self::Default(b)) => a.argument == b.argument,
+            (Self::Lower(_), Self::Lower(_)) => true,
+            (Self::External(_), Self::External(_)) => false, // Can't compare PyAny to PyAny
             _ => false,
         }
     }
@@ -182,12 +107,15 @@ impl PartialEq for FilterType {
 impl CloneRef for FilterType {
     fn clone_ref(&self, py: Python<'_>) -> Self {
         match self {
-            Self::Add(arg) => Self::Add(arg.clone()),
-            Self::AddSlashes => Self::AddSlashes,
-            Self::Capfirst => Self::Capfirst,
-            Self::Default(arg) => Self::Default(arg.clone()),
-            Self::External(filter, arg) => Self::External(filter.clone_ref(py), arg.clone()),
-            Self::Lower => Self::Lower,
+            Self::Add(filter) => Self::Add(AddFilter::new(filter.argument.clone())),
+            Self::AddSlashes(_) => Self::AddSlashes(AddSlashesFilter),
+            Self::Capfirst(_) => Self::Capfirst(CapfirstFilter),
+            Self::Default(filter) => Self::Default(DefaultFilter::new(filter.argument.clone())),
+            Self::External(external_filter) => Self::External(ExternalFilter::new(
+                external_filter.filter.clone_ref(py),
+                external_filter.argument.clone(),
+            )),
+            Self::Lower(_) => Self::Lower(LowerFilter),
         }
     }
 }
@@ -196,18 +124,19 @@ impl CloneRef for FilterType {
 impl PyEq for FilterType {
     fn py_eq(&self, other: &Self, py: Python<'_>) -> bool {
         match (self, other) {
-            (Self::Add(a), Self::Add(b)) => a == b,
-            (Self::AddSlashes, Self::AddSlashes) => true,
-            (Self::Capfirst, Self::Capfirst) => true,
-            (Self::Default(a), Self::Default(b)) => a == b,
-            (Self::External(a1, a2), Self::External(b1, b2)) => {
-                a2 == b2
-                    && a1
+            (Self::Add(a), Self::Add(b)) => a.argument == b.argument,
+            (Self::AddSlashes(_), Self::AddSlashes(_)) => true,
+            (Self::Capfirst(_), Self::Capfirst(_)) => true,
+            (Self::Default(a), Self::Default(b)) => a.argument == b.argument,
+            (Self::External(ext_a), Self::External(ext_b)) => {
+                ext_a.argument == ext_b.argument
+                    && ext_a
+                        .filter
                         .bind(py)
-                        .eq(b1.bind(py))
+                        .eq(ext_b.filter.bind(py))
                         .expect("__eq__ should not raise")
             }
-            (Self::Lower, Self::Lower) => true,
+            (Self::Lower(_), Self::Lower(_)) => true,
             _ => false,
         }
     }
@@ -229,7 +158,7 @@ impl Filter {
     ) -> Result<Self, ParseError> {
         let filter = match parser.template.content(at) {
             "add" => match right {
-                Some(right) => FilterType::Add(right),
+                Some(right) => FilterType::Add(AddFilter::new(right)),
                 None => return Err(ParseError::MissingArgument { at: at.into() }),
             },
             "addslashes" => match right {
@@ -239,7 +168,7 @@ impl Filter {
                         at: right.at.into(),
                     })
                 }
-                None => FilterType::AddSlashes,
+                None => FilterType::AddSlashes(AddSlashesFilter),
             },
             "capfirst" => match right {
                 Some(right) => {
@@ -248,10 +177,10 @@ impl Filter {
                         at: right.at.into(),
                     })
                 }
-                None => FilterType::Capfirst,
+                None => FilterType::Capfirst(CapfirstFilter),
             },
             "default" => match right {
-                Some(right) => FilterType::Default(right),
+                Some(right) => FilterType::Default(DefaultFilter::new(right)),
                 None => return Err(ParseError::MissingArgument { at: at.into() }),
             },
             "lower" => match right {
@@ -261,7 +190,7 @@ impl Filter {
                         at: right.at.into(),
                     })
                 }
-                None => FilterType::Lower,
+                None => FilterType::Lower(LowerFilter),
             },
             external => {
                 let external = match parser.external_filters.get(external) {
@@ -273,7 +202,7 @@ impl Filter {
                         })
                     }
                 };
-                FilterType::External(external, right)
+                FilterType::External(ExternalFilter::new(external, right))
             }
         };
         Ok(Self { at, left, filter })
@@ -772,7 +701,12 @@ impl<'t, 'l, 'py> Parser<'t, 'l, 'py> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::template::django_rusty_templates::{EngineData, Template};
+    use crate::{
+        filters::{
+            AddFilter, AddSlashesFilter, CapfirstFilter, DefaultFilter, ExternalFilter, LowerFilter,
+        },
+        template::django_rusty_templates::{EngineData, Template},
+    };
     use pyo3::types::{PyDict, PyDictMethods};
 
     use crate::lex::common::LexerError;
@@ -883,7 +817,7 @@ mod tests {
             let bar = TokenTree::Filter(Box::new(Filter {
                 at: (7, 3),
                 left: TagElement::Variable(foo),
-                filter: FilterType::External(py.None(), None),
+                filter: FilterType::External(ExternalFilter::new(py.None(), None)),
             }));
             assert!(nodes.py_eq(&vec![bar], py));
             assert_eq!(
@@ -930,12 +864,12 @@ mod tests {
             let bar = TagElement::Filter(Box::new(Filter {
                 at: (7, 3),
                 left: foo,
-                filter: FilterType::External(py.None(), None),
+                filter: FilterType::External(ExternalFilter::new(py.None(), None)),
             }));
             let baz = TokenTree::Filter(Box::new(Filter {
                 at: (11, 3),
                 left: bar,
-                filter: FilterType::External(py.None(), None),
+                filter: FilterType::External(ExternalFilter::new(py.None(), None)),
             }));
             assert!(nodes.py_eq(&vec![baz], py));
         })
@@ -957,13 +891,13 @@ mod tests {
             let bar = TokenTree::Filter(Box::new(Filter {
                 at: (7, 3),
                 left: foo,
-                filter: FilterType::External(
+                filter: FilterType::External(ExternalFilter::new(
                     py.None(),
                     Some(Argument {
                         at: (11, 3),
                         argument_type: ArgumentType::Variable(baz),
                     }),
-                ),
+                )),
             }));
             assert!(nodes.py_eq(&vec![bar], py));
             assert_eq!(
@@ -989,13 +923,13 @@ mod tests {
             let bar = TokenTree::Filter(Box::new(Filter {
                 at: (7, 3),
                 left: foo,
-                filter: FilterType::External(
+                filter: FilterType::External(ExternalFilter::new(
                     py.None(),
                     Some(Argument {
                         at: (11, 5),
                         argument_type: ArgumentType::Text(baz),
                     }),
-                ),
+                )),
             }));
             assert!(nodes.py_eq(&vec![bar], py));
             assert_eq!(template.content(baz.at), "baz");
@@ -1018,13 +952,13 @@ mod tests {
             let bar = TokenTree::Filter(Box::new(Filter {
                 at: (7, 3),
                 left: foo,
-                filter: FilterType::External(
+                filter: FilterType::External(ExternalFilter::new(
                     py.None(),
                     Some(Argument {
                         at: (11, 8),
                         argument_type: ArgumentType::TranslatedText(baz),
                     }),
-                ),
+                )),
             }));
             assert!(nodes.py_eq(&vec![bar], py));
             assert_eq!(template.content(baz.at), "baz");
@@ -1050,7 +984,7 @@ mod tests {
             let bar = TokenTree::Filter(Box::new(Filter {
                 at: (7, 3),
                 left: foo,
-                filter: FilterType::External(py.None(), Some(num)),
+                filter: FilterType::External(ExternalFilter::new(py.None(), Some(num))),
             }));
             assert!(nodes.py_eq(&vec![bar], py));
         })
@@ -1075,7 +1009,7 @@ mod tests {
             let bar = TokenTree::Filter(Box::new(Filter {
                 at: (7, 3),
                 left: foo,
-                filter: FilterType::External(py.None(), Some(num)),
+                filter: FilterType::External(ExternalFilter::new(py.None(), Some(num))),
             }));
             assert!(nodes.py_eq(&vec![bar], py));
         })
@@ -1100,7 +1034,7 @@ mod tests {
             let bar = TokenTree::Filter(Box::new(Filter {
                 at: (7, 3),
                 left: foo,
-                filter: FilterType::External(py.None(), Some(num)),
+                filter: FilterType::External(ExternalFilter::new(py.None(), Some(num))),
             }));
             assert!(nodes.py_eq(&vec![bar], py));
         })
@@ -1158,10 +1092,10 @@ mod tests {
             let bar = TokenTree::Filter(Box::new(Filter {
                 at: (7, 7),
                 left: foo,
-                filter: FilterType::Default(Argument {
+                filter: FilterType::Default(DefaultFilter::new(Argument {
                     at: (15, 3),
                     argument_type: ArgumentType::Variable(baz),
-                }),
+                })),
             }));
             assert_eq!(nodes, vec![bar]);
             assert_eq!(
@@ -1328,10 +1262,10 @@ mod tests {
             let default = Box::new(Filter {
                 at: (22, 7),
                 left: some_view_name,
-                filter: FilterType::Default(Argument {
+                filter: FilterType::Default(DefaultFilter::new(Argument {
                     at: (30, 6),
                     argument_type: ArgumentType::Text(home),
-                }),
+                })),
             });
             let url = TokenTree::Tag(Tag::Url(Url {
                 view_name: TagElement::Filter(default),
@@ -1395,10 +1329,10 @@ mod tests {
                     TagElement::Filter(Box::new(Filter {
                         at: (32, 7),
                         left: TagElement::Variable(Variable { at: (28, 3) }),
-                        filter: FilterType::Default(Argument {
+                        filter: FilterType::Default(DefaultFilter::new(Argument {
                             at: (40, 6),
                             argument_type: ArgumentType::Text(Text { at: (41, 4) }),
-                        }),
+                        })),
                     })),
                     TagElement::Int(64.into()),
                     TagElement::Float(5.7),
@@ -1539,17 +1473,20 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
-            assert_eq!(FilterType::Lower, FilterType::Lower);
-            assert_ne!(
-                FilterType::External(py.None(), None),
-                FilterType::External(py.None(), None)
+            assert_eq!(
+                FilterType::Lower(LowerFilter),
+                FilterType::Lower(LowerFilter)
             );
             assert_ne!(
-                FilterType::Lower,
-                FilterType::Default(Argument {
+                FilterType::External(ExternalFilter::new(py.None(), None)),
+                FilterType::External(ExternalFilter::new(py.None(), None))
+            );
+            assert_ne!(
+                FilterType::Lower(LowerFilter),
+                FilterType::Default(DefaultFilter::new(Argument {
                     at: (0, 3),
                     argument_type: ArgumentType::Float(1.0)
-                })
+                }))
             );
         })
     }
@@ -1559,11 +1496,11 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
-            assert!(!FilterType::Lower.py_eq(
-                &FilterType::Default(Argument {
+            assert!(!FilterType::Lower(LowerFilter).py_eq(
+                &FilterType::Default(DefaultFilter::new(Argument {
                     at: (0, 3),
                     argument_type: ArgumentType::Float(1.0)
-                }),
+                })),
                 py
             ));
         })
@@ -1612,20 +1549,20 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         Python::with_gil(|py| {
-            let add = FilterType::Add(Argument {
+            let add = FilterType::Add(AddFilter::new(Argument {
                 at: (6, 3),
                 argument_type: ArgumentType::Float(1.1),
-            });
+            }));
             let cloned = add.clone_ref(py);
             assert_eq!(add, cloned);
             assert!(add.py_eq(&cloned, py));
 
-            let add_slashes = FilterType::AddSlashes;
+            let add_slashes = FilterType::AddSlashes(AddSlashesFilter);
             let cloned = add_slashes.clone_ref(py);
             assert_eq!(add_slashes, cloned);
             assert!(add_slashes.py_eq(&cloned, py));
 
-            let capfirst = FilterType::Capfirst;
+            let capfirst = FilterType::Capfirst(CapfirstFilter);
             let cloned = capfirst.clone_ref(py);
             assert_eq!(capfirst, cloned);
             assert!(capfirst.py_eq(&cloned, py));
