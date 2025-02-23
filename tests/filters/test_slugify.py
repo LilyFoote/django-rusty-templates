@@ -75,3 +75,19 @@ def test_danish_name(assert_render):
     expected = "lrke-srensen"
 
     assert_render(template, context, expected)
+
+
+def test_list(assert_render):
+    template = "{{ test|slugify }}"
+    context = {"test": ["hello world", "muu"]}
+    expected = "hello-world-muu"
+
+    assert_render(template, context, expected)
+
+
+def test_dictionary(assert_render):
+    template = "{{ test|slugify }}"
+    context = {"test": {"key": "value"}}
+    expected = "key-value"
+
+    assert_render(template, context, expected)
