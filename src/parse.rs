@@ -13,6 +13,7 @@ use crate::filters::DefaultFilter;
 use crate::filters::ExternalFilter;
 use crate::filters::FilterType;
 use crate::filters::LowerFilter;
+use crate::filters::SlugifyFilter;
 use crate::lex::core::{Lexer, TokenType};
 use crate::lex::load::{LoadLexer, LoadToken};
 use crate::lex::tag::{lex_tag, TagLexerError, TagParts};
@@ -97,8 +98,9 @@ impl PartialEq for FilterType {
             (Self::AddSlashes(_), Self::AddSlashes(_)) => true,
             (Self::Capfirst(_), Self::Capfirst(_)) => true,
             (Self::Default(a), Self::Default(b)) => a.argument == b.argument,
-            (Self::Lower(_), Self::Lower(_)) => true,
             (Self::External(_), Self::External(_)) => false, // Can't compare PyAny to PyAny
+            (Self::Lower(_), Self::Lower(_)) => true,
+            (Self::Slugify(_), Self::Slugify(_)) => true,
             _ => false,
         }
     }
@@ -116,6 +118,7 @@ impl CloneRef for FilterType {
                 external_filter.argument.clone(),
             )),
             Self::Lower(_) => Self::Lower(LowerFilter),
+            Self::Slugify(_) => Self::Slugify(SlugifyFilter),
         }
     }
 }
@@ -191,6 +194,15 @@ impl Filter {
                     })
                 }
                 None => FilterType::Lower(LowerFilter),
+            },
+            "slugify" => match right {
+                Some(right) => {
+                    return Err(ParseError::UnexpectedArgument {
+                        filter: "slugify",
+                        at: right.at.into(),
+                    })
+                }
+                None => FilterType::Slugify(SlugifyFilter),
             },
             external => {
                 let external = match parser.external_filters.get(external) {

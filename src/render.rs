@@ -216,6 +216,7 @@ impl Render for Filter {
             FilterType::Default(filter) => filter.resolve(left, py, template, context),
             FilterType::External(filter) => filter.resolve(left, py, template, context),
             FilterType::Lower(filter) => filter.resolve(left, py, template, context),
+            FilterType::Slugify(filter) => filter.resolve(left, py, template, context),
         };
         result
     }

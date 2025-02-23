@@ -11,6 +11,7 @@ pub enum FilterType {
     Default(DefaultFilter),
     External(ExternalFilter),
     Lower(LowerFilter),
+    Slugify(SlugifyFilter),
 }
 
 pub trait ResolveFilter {
@@ -195,5 +196,20 @@ impl ResolveFilter for LowerFilter {
             None => "".into_content(),
         };
         Ok(content)
+    }
+}
+
+#[derive(Debug)]
+pub struct SlugifyFilter;
+
+impl ResolveFilter for SlugifyFilter {
+    fn resolve<'t, 'py>(
+        &self,
+        variable: Option<Content<'t, 'py>>,
+        _py: Python<'py>,
+        _template: TemplateString<'t>,
+        context: &mut Context,
+    ) -> TemplateResult<'t, 'py> {
+        Ok("".into_content())
     }
 }
