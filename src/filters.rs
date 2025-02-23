@@ -2,6 +2,8 @@ use crate::render::{Context, IntoBorrowedContent, IntoOwnedContent, Render, Temp
 use crate::types::Argument;
 use crate::{render::Content, types::TemplateString};
 use pyo3::prelude::*;
+use regex::Regex;
+use unicode_normalization::UnicodeNormalization;
 
 #[derive(Debug)]
 pub enum FilterType {
@@ -206,10 +208,30 @@ impl ResolveFilter for SlugifyFilter {
     fn resolve<'t, 'py>(
         &self,
         variable: Option<Content<'t, 'py>>,
-        _py: Python<'py>,
+        py: Python<'py>,
         _template: TemplateString<'t>,
-        context: &mut Context,
+        _context: &mut Context,
     ) -> TemplateResult<'t, 'py> {
-        Ok("".into_content())
+        let non_word_re = Regex::new(r"[^\w\s-]").unwrap();
+        let whitespace_re = Regex::new(r"[-\s]+").unwrap();
+
+        let content = match variable {
+            Some(content) => {
+                let content = content.to_py(py).str()?.extract::<String>()?;
+                let content = content
+                    .nfkd()
+                    // first decomposing characters, then only keeping
+                    // the ascii ones, filtering out diacritics for example.
+                    .filter(|c| c.is_ascii())
+                    .collect::<String>()
+                    .to_lowercase();
+                let content = non_word_re.replace_all(&content, "");
+                let content = content.trim();
+                let content = whitespace_re.replace_all(&content, "-");
+                content.to_string().into_content()
+            }
+            None => "".into_content(),
+        };
+        Ok(content)
     }
 }

@@ -548,6 +548,49 @@ user = User('Lily')
     }
 
     #[test]
+    fn test_render_filter_slugify() {
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let engine = EngineData::empty();
+            let template_string = "{{ var|slugify }}".to_string();
+            let context = PyDict::new(py);
+            context.set_item("var", "hello world").unwrap();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
+            let result = template.render(py, Some(context), None).unwrap();
+
+            assert_eq!(result, "hello-world");
+
+            let engine = EngineData::empty();
+            let template_string = "{{ var|slugify }}".to_string();
+            let context = PyDict::new(py);
+            context.set_item("var", " hello world").unwrap();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
+            let result = template.render(py, Some(context), None).unwrap();
+
+            assert_eq!(result, "hello-world");
+
+            let engine = EngineData::empty();
+            let template_string = "{{ var|slugify }}".to_string();
+            let context = PyDict::new(py);
+            context.set_item("var", "a&€%").unwrap();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
+            let result = template.render(py, Some(context), None).unwrap();
+
+            assert_eq!(result, "a");
+
+            let engine = EngineData::empty();
+            let template_string = "{{ var|slugify }}".to_string();
+            let context = PyDict::new(py);
+            context.set_item("var", "a & b").unwrap();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
+            let result = template.render(py, Some(context), None).unwrap();
+
+            assert_eq!(result, "a-b");
+        })
+    }
+
+    #[test]
     fn test_render_filter_capfirst() {
         pyo3::prepare_freethreaded_python();
 

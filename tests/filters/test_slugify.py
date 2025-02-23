@@ -67,3 +67,11 @@ def test_slugify_lazy_string(assert_render):
     }
     expected = "jack-jill-like-numbers-123-and-4-and-silly-characters"
     assert_render(template, context, expected)
+
+
+def test_danish_name(assert_render):
+    template = "{{ test|slugify }}"
+    context = {"test": "Lærke Sørensen"}
+    expected = "lrke-srensen"
+
+    assert_render(template, context, expected)
