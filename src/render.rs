@@ -587,6 +587,20 @@ user = User('Lily')
             let result = template.render(py, Some(context), None).unwrap();
 
             assert_eq!(result, "a-b");
+
+            let engine = EngineData::empty();
+            let template_string = "{{ not_there|slugify }}".to_string();
+            let context = PyDict::new(py);
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
+            let result = template.render(py, Some(context), None).unwrap();
+
+            assert_eq!(result, "");
+
+            let template_string = "{{ var|slugify:invalid }}".to_string();
+            let error = Template::new_from_string(py, template_string, &engine).unwrap_err();
+
+            let error_string = format!("{error}");
+            assert!(error_string.contains("slugify filter does not take an argument"));
         })
     }
 

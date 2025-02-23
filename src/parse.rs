@@ -140,6 +140,7 @@ impl PyEq for FilterType {
                         .expect("__eq__ should not raise")
             }
             (Self::Lower(_), Self::Lower(_)) => true,
+            (Self::Slugify(_), Self::Slugify(_)) => true,
             _ => false,
         }
     }
@@ -1578,6 +1579,11 @@ mod tests {
             let cloned = capfirst.clone_ref(py);
             assert_eq!(capfirst, cloned);
             assert!(capfirst.py_eq(&cloned, py));
+
+            let slugify = FilterType::Slugify(SlugifyFilter);
+            let cloned = slugify.clone_ref(py);
+            assert_eq!(slugify, cloned);
+            assert!(slugify.py_eq(&cloned, py));
         })
     }
 }
