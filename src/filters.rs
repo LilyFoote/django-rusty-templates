@@ -30,17 +30,19 @@ impl ResolveFilter for AddSlashesFilter {
     fn resolve<'t, 'py>(
         &self,
         variable: Option<Content<'t, 'py>>,
-        _py: Python<'py>,
+        py: Python<'py>,
         _template: TemplateString<'t>,
-        context: &mut Context,
+        _context: &mut Context,
     ) -> TemplateResult<'t, 'py> {
         let content = match variable {
-            Some(content) => content
-                .render(context)?
-                .replace(r"\", r"\\")
-                .replace("\"", "\\\"")
-                .replace("'", r"\'")
-                .into_content(),
+            Some(content) => {
+                let content = content.to_py(py).str()?.extract::<String>()?;
+                content
+                    .replace(r"\", r"\\")
+                    .replace("\"", "\\\"")
+                    .replace("'", r"\'")
+                    .into_content()
+            }
             None => "".into_content(),
         };
         Ok(content)
