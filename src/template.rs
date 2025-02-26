@@ -353,7 +353,7 @@ mod tests {
             filename.push("parse_error.txt");
 
             let expected = format!(
-                "TemplateSyntaxError: \n  × Empty variable tag
+                "TemplateSyntaxError:   × Empty variable tag
    ╭─[{}:1:28]
  1 │ This is an empty variable: {{{{ }}}}
    ·                            ──┬──
@@ -385,7 +385,7 @@ mod tests {
                 Template::new_from_string(py, template_string, &engine).unwrap_err()
             });
 
-            let expected = "TemplateSyntaxError: \n  × Could not parse the remainder
+            let expected = "TemplateSyntaxError:   × Could not parse the remainder
    ╭────
  1 │ {{ foo.bar|title'foo' }}
    ·                 ──┬──

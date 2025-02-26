@@ -24,7 +24,7 @@ def test_missing_argument():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """
+    assert str(exc_info.value) == """\
   × 'autoescape' tag missing an 'on' or 'off' argument.
    ╭────
  1 │ {% autoescape %}{{ html }}
@@ -45,7 +45,7 @@ def test_invalid_argument():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """
+    assert str(exc_info.value) == """\
   × 'autoescape' argument should be 'on' or 'off'.
    ╭────
  1 │ {% autoescape foo %}{{ html }}
@@ -66,7 +66,7 @@ def test_extra_argument():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """
+    assert str(exc_info.value) == """\
   × 'autoescape' tag requires exactly one argument.
    ╭────
  1 │ {% autoescape on off %}{{ html }}
@@ -87,7 +87,7 @@ def test_missing_endautoescape():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """
+    assert str(exc_info.value) == """\
   × Unclosed 'autoescape' tag. Looking for one of: endautoescape
    ╭────
  1 │ {% autoescape off %}{{ html }}
@@ -108,7 +108,7 @@ def test_wrong_end_tag():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """
+    assert str(exc_info.value) == """\
   × Unexpected tag endverbatim, expected endautoescape
    ╭────
  1 │ {% autoescape off %}{{ html }}{% endverbatim %}{% endautoescape %}
@@ -179,7 +179,7 @@ def test_unexpected_end_tag():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """
+    assert str(exc_info.value) == """\
   × Unexpected tag endautoescape
    ╭────
  1 │ {% endautoescape %}

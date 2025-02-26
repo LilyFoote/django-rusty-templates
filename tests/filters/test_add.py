@@ -35,7 +35,7 @@ def test_add_no_argument():
     with pytest.raises(VariableDoesNotExist) as exc_info:
         rust_template.render({"foo": 1})
 
-    assert str(exc_info.value) == """
+    assert str(exc_info.value) == """\
   × Failed lookup for key [bar] in {"foo": 1}
    ╭────
  1 │ {{ foo|add:bar }}
@@ -128,7 +128,7 @@ def test_add_missing_argument():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """
+    assert str(exc_info.value) == """\
   × Expected an argument
    ╭────
  1 │ {{ foo|add }}

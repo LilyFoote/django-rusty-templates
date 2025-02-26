@@ -157,7 +157,7 @@ def test_render_url_view_name_error():
     with pytest.raises(VariableDoesNotExist) as rust_error:
         rust_template.render({"foo": {"bar": 1}})
 
-    assert str(rust_error.value) == """
+    assert str(rust_error.value) == """\
   × Failed lookup for key [1b] in 1
    ╭────
  1 │ {% url foo.bar.1b.baz %}
