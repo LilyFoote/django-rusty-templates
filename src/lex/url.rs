@@ -48,7 +48,7 @@ pub enum UrlLexerError {
     #[error(transparent)]
     #[diagnostic(transparent)]
     LexerError(#[from] LexerError),
-    #[error("")]
+    #[error("Incomplete keyword argument")]
     IncompleteKeywordArgument {
         #[label("here")]
         at: SourceSpan,
