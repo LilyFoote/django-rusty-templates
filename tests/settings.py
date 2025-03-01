@@ -1,3 +1,11 @@
+import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+INSTALLED_APPS = [
+    "tests.apps.DummyAppConfig",
+]
+
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",

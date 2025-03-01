@@ -9,6 +9,7 @@ name = "django_rusty_templates"
 crate-type = ["cdylib"]
 
 [dependencies]
+cached = "0.54.0"
 either = "1.14.0"
 encoding_rs = "0.8.35"
 html-escape = "0.2.13"
