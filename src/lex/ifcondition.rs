@@ -8,12 +8,19 @@ pub enum IfConditionTokenType {
     Text,
     TranslatedText,
     Variable,
+    And,
+    Or,
+    Not,
     Equal,
     NotEqual,
     LessThan,
     GreaterThan,
     LessThanEqual,
     GreaterThanEqual,
+    In,
+    NotIn,
+    Is,
+    IsNot,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -149,12 +156,45 @@ impl Iterator for IfConditionLexer<'_> {
             .find(char::is_whitespace)
             .unwrap_or(self.rest.len());
         let (token_type, index) = match &self.rest[..index] {
+            "and" => (IfConditionTokenType::And, index),
+            "or" => (IfConditionTokenType::Or, index),
+            "not" => {
+                let rest = &self.rest[index..];
+                let whitespace_index = rest
+                    .find(|c: char| !c.is_whitespace())
+                    .unwrap_or(rest.len());
+                let rest = &rest[whitespace_index..];
+                let next_index = rest.find(char::is_whitespace).unwrap_or(rest.len());
+                match &rest[..next_index] {
+                    "in" => (
+                        IfConditionTokenType::NotIn,
+                        index + whitespace_index + next_index,
+                    ),
+                    _ => (IfConditionTokenType::Not, index),
+                }
+            }
             "==" => (IfConditionTokenType::Equal, index),
             "!=" => (IfConditionTokenType::NotEqual, index),
             "<" => (IfConditionTokenType::LessThan, index),
             ">" => (IfConditionTokenType::GreaterThan, index),
             "<=" => (IfConditionTokenType::LessThanEqual, index),
             ">=" => (IfConditionTokenType::GreaterThanEqual, index),
+            "in" => (IfConditionTokenType::In, index),
+            "is" => {
+                let rest = &self.rest[index..];
+                let whitespace_index = rest
+                    .find(|c: char| !c.is_whitespace())
+                    .unwrap_or(rest.len());
+                let rest = &rest[whitespace_index..];
+                let next_index = rest.find(char::is_whitespace).unwrap_or(rest.len());
+                match &rest[..next_index] {
+                    "not" => (
+                        IfConditionTokenType::IsNot,
+                        index + whitespace_index + next_index,
+                    ),
+                    _ => (IfConditionTokenType::Is, index),
+                }
+            }
             _ => return Some(self.lex_condition()),
         };
         let at = (self.byte, index);
@@ -245,6 +285,48 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_and() {
+        let template = "{% if and %}";
+        let parts = TagParts { at: (6, 3) };
+        let lexer = IfConditionLexer::new(template.into(), parts);
+        let tokens: Vec<_> = lexer.collect();
+
+        let and = IfConditionToken {
+            at: (6, 3),
+            token_type: IfConditionTokenType::And,
+        };
+        assert_eq!(tokens, vec![Ok(and)]);
+    }
+
+    #[test]
+    fn test_lex_or() {
+        let template = "{% if or %}";
+        let parts = TagParts { at: (6, 2) };
+        let lexer = IfConditionLexer::new(template.into(), parts);
+        let tokens: Vec<_> = lexer.collect();
+
+        let or = IfConditionToken {
+            at: (6, 2),
+            token_type: IfConditionTokenType::Or,
+        };
+        assert_eq!(tokens, vec![Ok(or)]);
+    }
+
+    #[test]
+    fn test_lex_not() {
+        let template = "{% if not %}";
+        let parts = TagParts { at: (6, 3) };
+        let lexer = IfConditionLexer::new(template.into(), parts);
+        let tokens: Vec<_> = lexer.collect();
+
+        let not = IfConditionToken {
+            at: (6, 3),
+            token_type: IfConditionTokenType::Not,
+        };
+        assert_eq!(tokens, vec![Ok(not)]);
+    }
+
+    #[test]
     fn test_lex_equal() {
         let template = "{% if == %}";
         let parts = TagParts { at: (6, 2) };
@@ -329,6 +411,62 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_in() {
+        let template = "{% if in %}";
+        let parts = TagParts { at: (6, 2) };
+        let lexer = IfConditionLexer::new(template.into(), parts);
+        let tokens: Vec<_> = lexer.collect();
+
+        let in_ = IfConditionToken {
+            at: (6, 2),
+            token_type: IfConditionTokenType::In,
+        };
+        assert_eq!(tokens, vec![Ok(in_)]);
+    }
+
+    #[test]
+    fn test_lex_not_in() {
+        let template = "{% if not in %}";
+        let parts = TagParts { at: (6, 6) };
+        let lexer = IfConditionLexer::new(template.into(), parts);
+        let tokens: Vec<_> = lexer.collect();
+
+        let not_in = IfConditionToken {
+            at: (6, 6),
+            token_type: IfConditionTokenType::NotIn,
+        };
+        assert_eq!(tokens, vec![Ok(not_in)]);
+    }
+
+    #[test]
+    fn test_lex_is() {
+        let template = "{% if is %}";
+        let parts = TagParts { at: (6, 2) };
+        let lexer = IfConditionLexer::new(template.into(), parts);
+        let tokens: Vec<_> = lexer.collect();
+
+        let is = IfConditionToken {
+            at: (6, 2),
+            token_type: IfConditionTokenType::Is,
+        };
+        assert_eq!(tokens, vec![Ok(is)]);
+    }
+
+    #[test]
+    fn test_lex_is_not() {
+        let template = "{% if is not %}";
+        let parts = TagParts { at: (6, 6) };
+        let lexer = IfConditionLexer::new(template.into(), parts);
+        let tokens: Vec<_> = lexer.collect();
+
+        let is_not = IfConditionToken {
+            at: (6, 6),
+            token_type: IfConditionTokenType::IsNot,
+        };
+        assert_eq!(tokens, vec![Ok(is_not)]);
+    }
+
+    #[test]
     fn test_lex_complex_condition() {
         let template = "{% if foo.bar|default:'spam' and count >= 1.5 or enabled is not False %}";
         let parts = TagParts { at: (6, 63) };
@@ -341,7 +479,7 @@ mod tests {
         };
         let and = IfConditionToken {
             at: (29, 3),
-            token_type: IfConditionTokenType::Variable,
+            token_type: IfConditionTokenType::And,
         };
         let count = IfConditionToken {
             at: (33, 5),
@@ -357,19 +495,15 @@ mod tests {
         };
         let or = IfConditionToken {
             at: (46, 2),
-            token_type: IfConditionTokenType::Variable,
+            token_type: IfConditionTokenType::Or,
         };
         let enabled = IfConditionToken {
             at: (49, 7),
             token_type: IfConditionTokenType::Variable,
         };
-        let is = IfConditionToken {
-            at: (57, 2),
-            token_type: IfConditionTokenType::Variable,
-        };
-        let not = IfConditionToken {
-            at: (60, 3),
-            token_type: IfConditionTokenType::Variable,
+        let is_not = IfConditionToken {
+            at: (57, 6),
+            token_type: IfConditionTokenType::IsNot,
         };
         let falsey = IfConditionToken {
             at: (64, 5),
@@ -383,8 +517,7 @@ mod tests {
             Ok(numeric),
             Ok(or),
             Ok(enabled),
-            Ok(is),
-            Ok(not),
+            Ok(is_not),
             Ok(falsey),
         ];
         assert_eq!(tokens, condition);
