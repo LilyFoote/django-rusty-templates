@@ -446,8 +446,9 @@ mod tests {
 
         Python::with_gil(|py| {
             let engine = EngineData::empty();
-            let template_string = "{{ var|default:1|slugify }}".to_string();
+            let template_string = "{{ var|slugify }}".to_string();
             let context = PyDict::new(py);
+            context.set_item("var", 1).unwrap();
             let template = Template::new_from_string(py, template_string, &engine).unwrap();
             let result = template.render(py, Some(context), None).unwrap();
 
