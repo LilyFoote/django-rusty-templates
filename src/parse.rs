@@ -19,6 +19,7 @@ use crate::filters::SafeFilter;
 use crate::filters::SlugifyFilter;
 use crate::lex::autoescape::{lex_autoescape_argument, AutoescapeEnabled, AutoescapeError};
 use crate::lex::core::{Lexer, TokenType};
+use crate::lex::ifcondition::IfConditionLexer;
 use crate::lex::load::{LoadLexer, LoadToken};
 use crate::lex::tag::{lex_tag, TagLexerError, TagParts};
 use crate::lex::url::{UrlLexer, UrlLexerError, UrlToken, UrlTokenType};
@@ -377,6 +378,14 @@ impl PyEq for IfCondition {
     }
 }
 
+fn parse_if_condition(
+    template: TemplateString<'_>,
+    parts: TagParts,
+) -> Result<IfCondition, ParseError> {
+    let mut lexer = IfConditionLexer::new(template, parts);
+    todo!()
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Tag {
     Autoescape {
@@ -453,6 +462,9 @@ impl PyEq for Tag {
 #[derive(PartialEq, Eq)]
 enum EndTagType {
     Autoescape,
+    Elif,
+    Else,
+    EndIf,
     Verbatim,
 }
 
@@ -460,6 +472,9 @@ impl EndTagType {
     fn as_str(&self) -> &'static str {
         match self {
             EndTagType::Autoescape => "endautoescape",
+            EndTagType::Elif => "elif",
+            EndTagType::Else => "else",
+            EndTagType::EndIf => "endif",
             EndTagType::Verbatim => "endverbatim",
         }
     }
@@ -854,6 +869,7 @@ impl<'t, 'l, 'py> Parser<'t, 'l, 'py> {
                 at,
                 parts,
             }),
+            "if" => Either::Left(self.parse_if(at, parts, "if")?),
             _ => todo!(),
         })
     }
@@ -985,6 +1001,46 @@ impl<'t, 'l, 'py> Parser<'t, 'l, 'py> {
         Ok(TokenTree::Tag(Tag::Autoescape {
             enabled: token.enabled,
             nodes,
+        }))
+    }
+
+    fn parse_if(
+        &mut self,
+        at: (usize, usize),
+        parts: TagParts,
+        start: &'static str,
+    ) -> Result<TokenTree, PyParseError> {
+        let condition = parse_if_condition(self.template, parts)?;
+        let (nodes, end_tag) = self.parse_until(
+            vec![EndTagType::Elif, EndTagType::Else, EndTagType::EndIf],
+            start,
+            at,
+        )?;
+        let falsey = match end_tag {
+            EndTag {
+                at,
+                end: EndTagType::Elif,
+                parts,
+            } => Some(vec![self.parse_if(at, parts, "elif")?]),
+            EndTag {
+                at,
+                end: EndTagType::Else,
+                parts: _parts,
+            } => {
+                let (nodes, _) = self.parse_until(vec![EndTagType::EndIf], "else", at)?;
+                Some(nodes)
+            }
+            EndTag {
+                at: _end_at,
+                end: EndTagType::EndIf,
+                parts: _parts,
+            } => None,
+            _ => unreachable!(),
+        };
+        Ok(TokenTree::Tag(Tag::If {
+            condition,
+            truthy: nodes,
+            falsey,
         }))
     }
 }
