@@ -509,7 +509,7 @@ pub enum ParseError {
     #[error("Unexpected tag {unexpected}, expected {expected}")]
     WrongEndTag {
         unexpected: &'static str,
-        expected: &'static str,
+        expected: String,
         #[label("unexpected tag")]
         at: SourceSpan,
         #[label("start tag")]
@@ -639,10 +639,10 @@ impl<'t, 'l, 'py> Parser<'t, 'l, 'py> {
 
     fn parse_until(
         &mut self,
-        until: EndTagType,
+        until: Vec<EndTagType>,
         start: &'static str,
         start_at: (usize, usize),
-    ) -> Result<Vec<TokenTree>, PyParseError> {
+    ) -> Result<(Vec<TokenTree>, EndTag), PyParseError> {
         let mut nodes = Vec::new();
         while let Some(token) = self.lexer.next() {
             let node = match token.token_type {
@@ -658,11 +658,15 @@ impl<'t, 'l, 'py> Parser<'t, 'l, 'py> {
                 TokenType::Tag => match self.parse_tag(token.content(self.template), token.at)? {
                     Either::Left(token_tree) => token_tree,
                     Either::Right(end_tag) => {
-                        if end_tag.end == until {
-                            return Ok(nodes);
+                        if until.contains(&end_tag.end) {
+                            return Ok((nodes, end_tag));
                         } else {
                             return Err(ParseError::WrongEndTag {
-                                expected: until.as_str(),
+                                expected: until
+                                    .iter()
+                                    .map(|u| u.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
                                 unexpected: end_tag.as_str(),
                                 at: end_tag.at.into(),
                                 start_at: start_at.into(),
@@ -676,7 +680,11 @@ impl<'t, 'l, 'py> Parser<'t, 'l, 'py> {
         }
         Err(ParseError::MissingEndTag {
             start,
-            expected: [until.as_str()].join(", "),
+            expected: until
+                .iter()
+                .map(|u| u.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
             at: start_at.into(),
         }
         .into())
@@ -862,7 +870,7 @@ impl<'t, 'l, 'py> Parser<'t, 'l, 'py> {
         parts: TagParts,
     ) -> Result<TokenTree, PyParseError> {
         let token = lex_autoescape_argument(self.template, parts).map_err(ParseError::from)?;
-        let nodes = self.parse_until(EndTagType::Autoescape, "autoescape", at)?;
+        let (nodes, _) = self.parse_until(vec![EndTagType::Autoescape], "autoescape", at)?;
         Ok(TokenTree::Tag(Tag::Autoescape {
             enabled: token.enabled,
             nodes,
