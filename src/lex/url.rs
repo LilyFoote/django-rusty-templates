@@ -2,7 +2,7 @@ use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 use unicode_xid::UnicodeXID;
 
-use crate::lex::common::{lex_numeric, lex_text, lex_translated, LexerError};
+use crate::lex::common::{lex_numeric, lex_text, lex_translated, lex_variable, LexerError};
 use crate::lex::tag::TagParts;
 use crate::lex::{END_TRANSLATE_LEN, QUOTE_LEN, START_TRANSLATE_LEN};
 use crate::types::TemplateString;
@@ -140,29 +140,9 @@ impl<'t> UrlLexer<'t> {
         &mut self,
         kwarg: Option<(usize, usize)>,
     ) -> Result<UrlToken, UrlLexerError> {
-        let mut in_text = None;
-        let mut end = 0;
-        for c in self.rest.chars() {
-            match c {
-                '"' => match in_text {
-                    None => in_text = Some('"'),
-                    Some('"') => in_text = None,
-                    _ => {}
-                },
-                '\'' => match in_text {
-                    None => in_text = Some('\''),
-                    Some('\'') => in_text = None,
-                    _ => {}
-                },
-                _ if in_text.is_some() => {}
-                c if !c.is_xid_continue() && c != '.' && c != '|' && c != ':' => break,
-                _ => {}
-            }
-            end += 1;
-        }
-        let at = (self.byte, end);
-        self.rest = &self.rest[end..];
-        self.byte += end;
+        let (at, byte, rest) = lex_variable(self.byte, self.rest);
+        self.rest = rest;
+        self.byte = byte;
         Ok(UrlToken {
             token_type: UrlTokenType::Variable,
             at,

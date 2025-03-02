@@ -34,6 +34,33 @@ pub enum LexerError {
     },
 }
 
+pub fn lex_variable(byte: usize, rest: &str) -> ((usize, usize), usize, &str) {
+    let mut in_text = None;
+    let mut end = 0;
+    for c in rest.chars() {
+        match c {
+            '"' => match in_text {
+                None => in_text = Some('"'),
+                Some('"') => in_text = None,
+                _ => {}
+            },
+            '\'' => match in_text {
+                None => in_text = Some('\''),
+                Some('\'') => in_text = None,
+                _ => {}
+            },
+            _ if in_text.is_some() => {}
+            c if !c.is_xid_continue() && c != '.' && c != '|' && c != ':' => break,
+            _ => {}
+        }
+        end += 1;
+    }
+    let at = (byte, end);
+    let rest = &rest[end..];
+    let byte = byte + end;
+    (at, byte, rest)
+}
+
 pub fn lex_text<'t>(
     byte: usize,
     rest: &'t str,

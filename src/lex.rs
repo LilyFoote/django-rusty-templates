@@ -1,6 +1,7 @@
 pub mod autoescape;
 pub mod common;
 pub mod core;
+pub mod ifcondition;
 pub mod load;
 pub mod tag;
 pub mod url;

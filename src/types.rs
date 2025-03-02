@@ -161,6 +161,20 @@ where
 }
 
 #[cfg(test)]
+impl<O> PyEq for Option<O>
+where
+    O: PyEq,
+{
+    fn py_eq(&self, other: &Self, py: Python<'_>) -> bool {
+        match (self, other) {
+            (None, None) => true,
+            (Some(l), Some(r)) => l.py_eq(r, py),
+            _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
