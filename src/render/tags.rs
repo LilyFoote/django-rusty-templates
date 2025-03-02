@@ -99,6 +99,11 @@ impl Render for Tag {
                 context.autoescape = autoescape;
                 Cow::Owned(rendered.join(""))
             }
+            Self::If {
+                condition,
+                truthy,
+                falsey,
+            } => todo!(),
             Self::Load => Cow::Borrowed(""),
             Self::Url(url) => url.render(py, template, context)?,
         })

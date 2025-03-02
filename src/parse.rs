@@ -296,10 +296,97 @@ impl PyEq for Url {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum IfCondition {
+    Variable(TagElement),
+    And(Box<IfCondition>, Box<IfCondition>),
+    Or(Box<IfCondition>, Box<IfCondition>),
+    Not(Box<IfCondition>),
+    Equal(Box<IfCondition>, Box<IfCondition>),
+    NotEqual(Box<IfCondition>, Box<IfCondition>),
+    LessThan(Box<IfCondition>, Box<IfCondition>),
+    GreaterThan(Box<IfCondition>, Box<IfCondition>),
+    LessThanEqual(Box<IfCondition>, Box<IfCondition>),
+    GreaterThanEqual(Box<IfCondition>, Box<IfCondition>),
+    In(Box<IfCondition>, Box<IfCondition>),
+    NotIn(Box<IfCondition>, Box<IfCondition>),
+    Is(Box<IfCondition>, Box<IfCondition>),
+    IsNot(Box<IfCondition>, Box<IfCondition>),
+}
+
+impl CloneRef for IfCondition {
+    fn clone_ref(&self, py: Python<'_>) -> Self {
+        match self {
+            Self::Variable(v) => Self::Variable(v.clone_ref(py)),
+            Self::And(l, r) => Self::And(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py))),
+            Self::Or(l, r) => Self::Or(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py))),
+            Self::Not(c) => Self::Not(Box::new(c.clone_ref(py))),
+            Self::Equal(l, r) => Self::Equal(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py))),
+            Self::NotEqual(l, r) => {
+                Self::NotEqual(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py)))
+            }
+            Self::LessThan(l, r) => {
+                Self::LessThan(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py)))
+            }
+            Self::GreaterThan(l, r) => {
+                Self::GreaterThan(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py)))
+            }
+            Self::LessThanEqual(l, r) => {
+                Self::LessThanEqual(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py)))
+            }
+            Self::GreaterThanEqual(l, r) => {
+                Self::GreaterThanEqual(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py)))
+            }
+            Self::In(l, r) => Self::In(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py))),
+            Self::NotIn(l, r) => Self::NotIn(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py))),
+            Self::Is(l, r) => Self::Is(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py))),
+            Self::IsNot(l, r) => Self::IsNot(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py))),
+        }
+    }
+}
+
+#[cfg(test)]
+impl PyEq for IfCondition {
+    fn py_eq(&self, other: &Self, py: Python<'_>) -> bool {
+        match (self, other) {
+            (Self::Variable(v1), Self::Variable(v2)) => v1.py_eq(v2, py),
+            (Self::And(l1, r1), Self::And(l2, r2)) => l1.py_eq(l2, py) && r1.py_eq(r2, py),
+            (Self::Or(l1, r1), Self::Or(l2, r2)) => l1.py_eq(l2, py) && r1.py_eq(r2, py),
+            (Self::Not(v1), Self::Not(v2)) => v1.py_eq(v2, py),
+            (Self::Equal(l1, r1), Self::Equal(l2, r2)) => l1.py_eq(l2, py) && r1.py_eq(r2, py),
+            (Self::NotEqual(l1, r1), Self::NotEqual(l2, r2)) => {
+                l1.py_eq(l2, py) && r1.py_eq(r2, py)
+            }
+            (Self::LessThan(l1, r1), Self::LessThan(l2, r2)) => {
+                l1.py_eq(l2, py) && r1.py_eq(r2, py)
+            }
+            (Self::LessThanEqual(l1, r1), Self::LessThanEqual(l2, r2)) => {
+                l1.py_eq(l2, py) && r1.py_eq(r2, py)
+            }
+            (Self::GreaterThan(l1, r1), Self::GreaterThan(l2, r2)) => {
+                l1.py_eq(l2, py) && r1.py_eq(r2, py)
+            }
+            (Self::GreaterThanEqual(l1, r1), Self::GreaterThanEqual(l2, r2)) => {
+                l1.py_eq(l2, py) && r1.py_eq(r2, py)
+            }
+            (Self::In(l1, r1), Self::In(l2, r2)) => l1.py_eq(l2, py) && r1.py_eq(r2, py),
+            (Self::NotIn(l1, r1), Self::NotIn(l2, r2)) => l1.py_eq(l2, py) && r1.py_eq(r2, py),
+            (Self::Is(l1, r1), Self::Is(l2, r2)) => l1.py_eq(l2, py) && r1.py_eq(r2, py),
+            (Self::IsNot(l1, r1), Self::IsNot(l2, r2)) => l1.py_eq(l2, py) && r1.py_eq(r2, py),
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum Tag {
     Autoescape {
         enabled: AutoescapeEnabled,
         nodes: Vec<TokenTree>,
+    },
+    If {
+        condition: IfCondition,
+        truthy: Vec<TokenTree>,
+        falsey: Option<Vec<TokenTree>>,
     },
     Load,
     Url(Url),
@@ -311,6 +398,18 @@ impl CloneRef for Tag {
             Self::Autoescape { enabled, nodes } => Self::Autoescape {
                 enabled: enabled.clone(),
                 nodes: nodes.clone_ref(py),
+            },
+            Self::If {
+                condition,
+                truthy,
+                falsey,
+            } => Self::If {
+                condition: condition.clone_ref(py),
+                truthy: truthy.clone_ref(py),
+                falsey: match falsey {
+                    None => None,
+                    Some(falsey) => Some(falsey.clone_ref(py)),
+                },
             },
             Self::Load => Self::Load,
             Self::Url(url) => Self::Url(url.clone_ref(py)),
@@ -332,6 +431,18 @@ impl PyEq for Tag {
                     nodes: d,
                 },
             ) => a == c && b.py_eq(d, py),
+            (
+                Self::If {
+                    condition: c1,
+                    truthy: t1,
+                    falsey: f1,
+                },
+                Self::If {
+                    condition: c2,
+                    truthy: t2,
+                    falsey: f2,
+                },
+            ) => c1.py_eq(c2, py) && t1.py_eq(t2, py) && f1.py_eq(f2, py),
             (Self::Load, Self::Load) => true,
             (Self::Url(a), Self::Url(b)) => a.py_eq(b, py),
             _ => false,
