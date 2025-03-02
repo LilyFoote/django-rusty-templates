@@ -358,6 +358,7 @@ impl EndTagType {
 struct EndTag {
     at: (usize, usize),
     end: EndTagType,
+    parts: TagParts,
 }
 
 impl EndTag {
@@ -727,10 +728,12 @@ impl<'t, 'l, 'py> Parser<'t, 'l, 'py> {
             "endautoescape" => Either::Right(EndTag {
                 end: EndTagType::Autoescape,
                 at,
+                parts,
             }),
             "endverbatim" => Either::Right(EndTag {
                 end: EndTagType::Verbatim,
                 at,
+                parts,
             }),
             _ => todo!(),
         })
