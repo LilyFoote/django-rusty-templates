@@ -5,7 +5,7 @@ use unicode_xid::UnicodeXID;
 const START_TRANSLATE_LEN: usize = 2;
 const END_TRANSLATE_LEN: usize = 1;
 
-#[derive(Error, Debug, Diagnostic, PartialEq, Eq)]
+#[derive(Clone, Error, Debug, Diagnostic, PartialEq, Eq)]
 pub enum LexerError {
     #[error("Expected a complete string literal")]
     IncompleteString {

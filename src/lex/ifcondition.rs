@@ -25,8 +25,8 @@ pub enum IfConditionTokenType {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct IfConditionToken {
-    at: (usize, usize),
-    token_type: IfConditionTokenType,
+    pub at: (usize, usize),
+    pub token_type: IfConditionTokenType,
 }
 
 pub struct IfConditionLexer<'t> {

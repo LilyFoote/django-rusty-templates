@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::iter::Peekable;
 
 use either::Either;
 use miette::{Diagnostic, SourceSpan};
@@ -18,8 +19,9 @@ use crate::filters::LowerFilter;
 use crate::filters::SafeFilter;
 use crate::filters::SlugifyFilter;
 use crate::lex::autoescape::{lex_autoescape_argument, AutoescapeEnabled, AutoescapeError};
+use crate::lex::common::LexerError;
 use crate::lex::core::{Lexer, TokenType};
-use crate::lex::ifcondition::IfConditionLexer;
+use crate::lex::ifcondition::{IfConditionLexer, IfConditionTokenType};
 use crate::lex::load::{LoadLexer, LoadToken};
 use crate::lex::tag::{lex_tag, TagLexerError, TagParts};
 use crate::lex::url::{UrlLexer, UrlLexerError, UrlToken, UrlTokenType};
@@ -379,11 +381,126 @@ impl PyEq for IfCondition {
 }
 
 fn parse_if_condition(
-    template: TemplateString<'_>,
+    parser: &mut Parser,
     parts: TagParts,
+    at: (usize, usize),
 ) -> Result<IfCondition, ParseError> {
-    let mut lexer = IfConditionLexer::new(template, parts);
-    todo!()
+    let mut lexer = IfConditionLexer::new(parser.template, parts).peekable();
+    if lexer.peek().is_none() {
+        return Err(ParseError::MissingBooleanExpression { at: at.into() });
+    }
+    parse_if_binding_power(parser, &mut lexer, 0, at)
+}
+
+fn parse_if_binding_power(
+    parser: &mut Parser,
+    lexer: &mut Peekable<IfConditionLexer>,
+    min_binding_power: u8,
+    at: (usize, usize),
+) -> Result<IfCondition, ParseError> {
+    let token = match lexer.next().transpose()? {
+        Some(token) => token,
+        None => return Err(ParseError::UnexpectedEndExpression { at: at.into() }),
+    };
+    let content = parser.template.content(token.at);
+    let mut lhs = match token.token_type {
+        IfConditionTokenType::Numeric => IfCondition::Variable(parse_numeric(content, token.at)?),
+        IfConditionTokenType::Text => IfCondition::Variable(TagElement::Text(Text::new(token.at))),
+        IfConditionTokenType::TranslatedText => {
+            IfCondition::Variable(TagElement::TranslatedText(Text::new(token.at)))
+        }
+        IfConditionTokenType::Variable => {
+            IfCondition::Variable(parser.parse_variable(content, token.at, token.at.0)?)
+        }
+        IfConditionTokenType::Not => {
+            let binding_power = IfConditionTokenType::Not
+                .binding_power()
+                .expect("IfConditionTokenType::Not has a binding_power");
+            let if_condition = parse_if_binding_power(parser, lexer, binding_power, token.at)?;
+            IfCondition::Not(Box::new(if_condition))
+        }
+        _ => {
+            return Err(ParseError::InvalidIfPosition {
+                at: token.at.into(),
+                token: content.to_string(),
+            })
+        }
+    };
+
+    loop {
+        let token = match lexer.peek() {
+            None => break,
+            Some(Err(e)) => return Err(e.clone().into()),
+            Some(Ok(token)) => token,
+        };
+        let binding_power = match token.token_type.binding_power() {
+            Some(binding_power) => binding_power,
+            None => {
+                return Err(ParseError::UnusedExpression {
+                    at: token.at.into(),
+                    expression: parser.template.content(token.at).to_string(),
+                })
+            }
+        };
+        if binding_power < min_binding_power {
+            break;
+        }
+
+        // We can get the next token properly now, since we have the right binding
+        // power and don't need to `break`.
+        let token = lexer
+            .next()
+            .expect("already `break`ed in match peek()")
+            .expect("already `return Err` in match peek()");
+        let rhs = parse_if_binding_power(parser, lexer, binding_power, token.at)?;
+
+        lhs = token
+            .token_type
+            .build_condition(lhs, rhs)
+            .expect("we only get here with a suitable token type")
+    }
+
+    Ok(lhs)
+}
+
+impl IfConditionTokenType {
+    fn binding_power(&self) -> Option<u8> {
+        Some(match self {
+            Self::Or => 6,
+            Self::And => 7,
+            Self::Not => 8,
+            Self::In => 9,
+            Self::NotIn => 9,
+            Self::Is => 10,
+            Self::IsNot => 10,
+            Self::Equal => 10,
+            Self::NotEqual => 10,
+            Self::GreaterThan => 10,
+            Self::GreaterThanEqual => 10,
+            Self::LessThan => 10,
+            Self::LessThanEqual => 10,
+            _ => return None,
+        })
+    }
+
+    fn build_condition(&self, lhs: IfCondition, rhs: IfCondition) -> Option<IfCondition> {
+        let inner = Box::new((lhs, rhs));
+        Some(match self {
+            Self::And => IfCondition::And(inner),
+            Self::Or => IfCondition::Or(inner),
+            Self::In => IfCondition::In(inner),
+            Self::NotIn => IfCondition::NotIn(inner),
+            Self::Is => IfCondition::Is(inner),
+            Self::IsNot => IfCondition::IsNot(inner),
+            Self::Equal => IfCondition::Equal(inner),
+            Self::NotEqual => IfCondition::NotEqual(inner),
+            Self::GreaterThan => IfCondition::GreaterThan(inner),
+            Self::GreaterThanEqual => IfCondition::GreaterThanEqual(inner),
+            Self::LessThan => IfCondition::LessThan(inner),
+            Self::LessThanEqual => IfCondition::LessThanEqual(inner),
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -566,6 +683,9 @@ pub enum ParseError {
     BlockError(#[from] TagLexerError),
     #[error(transparent)]
     #[diagnostic(transparent)]
+    LexerError(#[from] LexerError),
+    #[error(transparent)]
+    #[diagnostic(transparent)]
     UrlLexerError(#[from] UrlLexerError),
     #[error(transparent)]
     #[diagnostic(transparent)]
@@ -576,8 +696,19 @@ pub enum ParseError {
         #[label("here")]
         at: SourceSpan,
     },
+    #[error("Not expecting '{token}' in this position")]
+    InvalidIfPosition {
+        token: String,
+        #[label("here")]
+        at: SourceSpan,
+    },
     #[error("Invalid numeric literal")]
     InvalidNumber {
+        #[label("here")]
+        at: SourceSpan,
+    },
+    #[error("Missing boolean expression")]
+    MissingBooleanExpression {
         #[label("here")]
         at: SourceSpan,
     },
@@ -621,10 +752,21 @@ pub enum ParseError {
         #[label("unexpected argument")]
         at: SourceSpan,
     },
+    #[error("Unexpected end of expression")]
+    UnexpectedEndExpression {
+        #[label("after this")]
+        at: SourceSpan,
+    },
     #[error("Unexpected tag {unexpected}")]
     UnexpectedEndTag {
         unexpected: &'static str,
         #[label("unexpected tag")]
+        at: SourceSpan,
+    },
+    #[error("Unused expression '{expression}' in if tag")]
+    UnusedExpression {
+        expression: String,
+        #[label("here")]
         at: SourceSpan,
     },
     #[error("'url' takes at least one argument, a URL pattern name")]
@@ -1010,7 +1152,7 @@ impl<'t, 'l, 'py> Parser<'t, 'l, 'py> {
         parts: TagParts,
         start: &'static str,
     ) -> Result<TokenTree, PyParseError> {
-        let condition = parse_if_condition(self.template, parts)?;
+        let condition = parse_if_condition(self, parts, at)?;
         let (nodes, end_tag) = self.parse_until(
             vec![EndTagType::Elif, EndTagType::Else, EndTagType::EndIf],
             start,

@@ -33,8 +33,13 @@ def test_invalid_and_position():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    print(exc_info.value)
     assert str(exc_info.value) == """\
+  × Not expecting 'and' in this position
+   ╭────
+ 1 │ {% if and %}{{ foo }}{% endif %}
+   ·       ─┬─
+   ·        ╰── here
+   ╰────
 """
 
 
@@ -49,8 +54,34 @@ def test_invalid_or_position():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    print(exc_info.value)
     assert str(exc_info.value) == """\
+  × Not expecting 'or' in this position
+   ╭────
+ 1 │ {% if or %}{{ foo }}{% endif %}
+   ·       ─┬
+   ·        ╰── here
+   ╰────
+"""
+
+
+def test_no_condition():
+    template = "{% if %}{{ foo }}{% endif %}"
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["django"].from_string(template)
+
+    assert str(exc_info.value) == "Unexpected end of expression in if tag."
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["rusty"].from_string(template)
+
+    assert str(exc_info.value) == """\
+  × Missing boolean expression
+   ╭────
+ 1 │ {% if %}{{ foo }}{% endif %}
+   · ────┬───
+   ·     ╰── here
+   ╰────
 """
 
 
@@ -65,8 +96,13 @@ def test_unexpected_end_of_expression():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    print(exc_info.value)
     assert str(exc_info.value) == """\
+  × Unexpected end of expression
+   ╭────
+ 1 │ {% if not %}{{ foo }}{% endif %}
+   ·       ─┬─
+   ·        ╰── after this
+   ╰────
 """
 
 
@@ -81,8 +117,13 @@ def test_invalid_in_position():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    print(exc_info.value)
     assert str(exc_info.value) == """\
+  × Not expecting 'in' in this position
+   ╭────
+ 1 │ {% if in %}{{ foo }}{% endif %}
+   ·       ─┬
+   ·        ╰── here
+   ╰────
 """
 
 
@@ -97,8 +138,13 @@ def test_invalid_not_in_position():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    print(exc_info.value)
     assert str(exc_info.value) == """\
+  × Not expecting 'not in' in this position
+   ╭────
+ 1 │ {% if not in %}{{ foo }}{% endif %}
+   ·       ───┬──
+   ·          ╰── here
+   ╰────
 """
 
 
@@ -113,8 +159,13 @@ def test_invalid_is_position():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    print(exc_info.value)
     assert str(exc_info.value) == """\
+  × Not expecting 'is' in this position
+   ╭────
+ 1 │ {% if is %}{{ foo }}{% endif %}
+   ·       ─┬
+   ·        ╰── here
+   ╰────
 """
 
 
@@ -129,6 +180,32 @@ def test_invalid_is_not_position():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    print(exc_info.value)
     assert str(exc_info.value) == """\
+  × Not expecting 'is not' in this position
+   ╭────
+ 1 │ {% if is not %}{{ foo }}{% endif %}
+   ·       ───┬──
+   ·          ╰── here
+   ╰────
+"""
+
+
+def test_no_operator():
+    template = "{% if foo bar spam %}{{ foo }}{% endif %}"
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["django"].from_string(template)
+
+    assert str(exc_info.value) == "Unused 'bar' at end of if expression."
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["rusty"].from_string(template)
+
+    assert str(exc_info.value) == """\
+  × Unused expression 'bar' in if tag
+   ╭────
+ 1 │ {% if foo bar spam %}{{ foo }}{% endif %}
+   ·           ─┬─
+   ·            ╰── here
+   ╰────
 """
