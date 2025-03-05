@@ -299,48 +299,44 @@ impl PyEq for Url {
 #[derive(Debug, PartialEq)]
 pub enum IfCondition {
     Variable(TagElement),
-    And(Box<IfCondition>, Box<IfCondition>),
-    Or(Box<IfCondition>, Box<IfCondition>),
+    And(Box<(IfCondition, IfCondition)>),
+    Or(Box<(IfCondition, IfCondition)>),
     Not(Box<IfCondition>),
-    Equal(Box<IfCondition>, Box<IfCondition>),
-    NotEqual(Box<IfCondition>, Box<IfCondition>),
-    LessThan(Box<IfCondition>, Box<IfCondition>),
-    GreaterThan(Box<IfCondition>, Box<IfCondition>),
-    LessThanEqual(Box<IfCondition>, Box<IfCondition>),
-    GreaterThanEqual(Box<IfCondition>, Box<IfCondition>),
-    In(Box<IfCondition>, Box<IfCondition>),
-    NotIn(Box<IfCondition>, Box<IfCondition>),
-    Is(Box<IfCondition>, Box<IfCondition>),
-    IsNot(Box<IfCondition>, Box<IfCondition>),
+    Equal(Box<(IfCondition, IfCondition)>),
+    NotEqual(Box<(IfCondition, IfCondition)>),
+    LessThan(Box<(IfCondition, IfCondition)>),
+    GreaterThan(Box<(IfCondition, IfCondition)>),
+    LessThanEqual(Box<(IfCondition, IfCondition)>),
+    GreaterThanEqual(Box<(IfCondition, IfCondition)>),
+    In(Box<(IfCondition, IfCondition)>),
+    NotIn(Box<(IfCondition, IfCondition)>),
+    Is(Box<(IfCondition, IfCondition)>),
+    IsNot(Box<(IfCondition, IfCondition)>),
 }
 
 impl CloneRef for IfCondition {
     fn clone_ref(&self, py: Python<'_>) -> Self {
         match self {
             Self::Variable(v) => Self::Variable(v.clone_ref(py)),
-            Self::And(l, r) => Self::And(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py))),
-            Self::Or(l, r) => Self::Or(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py))),
+            Self::And(v) => Self::And(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
+            Self::Or(v) => Self::Or(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
             Self::Not(c) => Self::Not(Box::new(c.clone_ref(py))),
-            Self::Equal(l, r) => Self::Equal(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py))),
-            Self::NotEqual(l, r) => {
-                Self::NotEqual(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py)))
+            Self::Equal(v) => Self::Equal(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
+            Self::NotEqual(v) => Self::NotEqual(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
+            Self::LessThan(v) => Self::LessThan(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
+            Self::GreaterThan(v) => {
+                Self::GreaterThan(Box::new((v.0.clone_ref(py), v.1.clone_ref(py))))
             }
-            Self::LessThan(l, r) => {
-                Self::LessThan(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py)))
+            Self::LessThanEqual(v) => {
+                Self::LessThanEqual(Box::new((v.0.clone_ref(py), v.1.clone_ref(py))))
             }
-            Self::GreaterThan(l, r) => {
-                Self::GreaterThan(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py)))
+            Self::GreaterThanEqual(v) => {
+                Self::GreaterThanEqual(Box::new((v.0.clone_ref(py), v.1.clone_ref(py))))
             }
-            Self::LessThanEqual(l, r) => {
-                Self::LessThanEqual(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py)))
-            }
-            Self::GreaterThanEqual(l, r) => {
-                Self::GreaterThanEqual(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py)))
-            }
-            Self::In(l, r) => Self::In(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py))),
-            Self::NotIn(l, r) => Self::NotIn(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py))),
-            Self::Is(l, r) => Self::Is(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py))),
-            Self::IsNot(l, r) => Self::IsNot(Box::new(l.clone_ref(py)), Box::new(r.clone_ref(py))),
+            Self::In(v) => Self::In(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
+            Self::NotIn(v) => Self::NotIn(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
+            Self::Is(v) => Self::Is(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
+            Self::IsNot(v) => Self::IsNot(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
         }
     }
 }
@@ -350,29 +346,29 @@ impl PyEq for IfCondition {
     fn py_eq(&self, other: &Self, py: Python<'_>) -> bool {
         match (self, other) {
             (Self::Variable(v1), Self::Variable(v2)) => v1.py_eq(v2, py),
-            (Self::And(l1, r1), Self::And(l2, r2)) => l1.py_eq(l2, py) && r1.py_eq(r2, py),
-            (Self::Or(l1, r1), Self::Or(l2, r2)) => l1.py_eq(l2, py) && r1.py_eq(r2, py),
+            (Self::And(v1), Self::And(v2)) => v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py),
+            (Self::Or(v1), Self::Or(v2)) => v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py),
             (Self::Not(v1), Self::Not(v2)) => v1.py_eq(v2, py),
-            (Self::Equal(l1, r1), Self::Equal(l2, r2)) => l1.py_eq(l2, py) && r1.py_eq(r2, py),
-            (Self::NotEqual(l1, r1), Self::NotEqual(l2, r2)) => {
-                l1.py_eq(l2, py) && r1.py_eq(r2, py)
+            (Self::Equal(v1), Self::Equal(v2)) => v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py),
+            (Self::NotEqual(v1), Self::NotEqual(v2)) => {
+                v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py)
             }
-            (Self::LessThan(l1, r1), Self::LessThan(l2, r2)) => {
-                l1.py_eq(l2, py) && r1.py_eq(r2, py)
+            (Self::LessThan(v1), Self::LessThan(v2)) => {
+                v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py)
             }
-            (Self::LessThanEqual(l1, r1), Self::LessThanEqual(l2, r2)) => {
-                l1.py_eq(l2, py) && r1.py_eq(r2, py)
+            (Self::LessThanEqual(v1), Self::LessThanEqual(v2)) => {
+                v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py)
             }
-            (Self::GreaterThan(l1, r1), Self::GreaterThan(l2, r2)) => {
-                l1.py_eq(l2, py) && r1.py_eq(r2, py)
+            (Self::GreaterThan(v1), Self::GreaterThan(v2)) => {
+                v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py)
             }
-            (Self::GreaterThanEqual(l1, r1), Self::GreaterThanEqual(l2, r2)) => {
-                l1.py_eq(l2, py) && r1.py_eq(r2, py)
+            (Self::GreaterThanEqual(v1), Self::GreaterThanEqual(v2)) => {
+                v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py)
             }
-            (Self::In(l1, r1), Self::In(l2, r2)) => l1.py_eq(l2, py) && r1.py_eq(r2, py),
-            (Self::NotIn(l1, r1), Self::NotIn(l2, r2)) => l1.py_eq(l2, py) && r1.py_eq(r2, py),
-            (Self::Is(l1, r1), Self::Is(l2, r2)) => l1.py_eq(l2, py) && r1.py_eq(r2, py),
-            (Self::IsNot(l1, r1), Self::IsNot(l2, r2)) => l1.py_eq(l2, py) && r1.py_eq(r2, py),
+            (Self::In(v1), Self::In(v2)) => v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py),
+            (Self::NotIn(v1), Self::NotIn(v2)) => v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py),
+            (Self::Is(v1), Self::Is(v2)) => v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py),
+            (Self::IsNot(v1), Self::IsNot(v2)) => v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py),
             _ => false,
         }
     }
