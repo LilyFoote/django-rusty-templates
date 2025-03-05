@@ -247,19 +247,23 @@ impl PyEq for Filter {
     }
 }
 
+fn parse_numeric(content: &str, at: (usize, usize)) -> Result<TagElement, ParseError> {
+    match content.parse::<BigInt>() {
+        Ok(n) => Ok(TagElement::Int(n)),
+        Err(_) => match content.parse::<f64>() {
+            Ok(f) => Ok(TagElement::Float(f)),
+            Err(_) => Err(ParseError::InvalidNumber { at: at.into() }),
+        },
+    }
+}
+
 impl UrlToken {
     fn parse(&self, parser: &Parser) -> Result<TagElement, ParseError> {
         let content_at = self.content_at();
         let (start, _len) = content_at;
         let content = parser.template.content(content_at);
         match self.token_type {
-            UrlTokenType::Numeric => match content.parse::<BigInt>() {
-                Ok(n) => Ok(TagElement::Int(n)),
-                Err(_) => match content.parse::<f64>() {
-                    Ok(f) => Ok(TagElement::Float(f)),
-                    Err(_) => Err(ParseError::InvalidNumber { at: self.at.into() }),
-                },
-            },
+            UrlTokenType::Numeric => parse_numeric(content, self.at),
             UrlTokenType::Text => Ok(TagElement::Text(Text::new(content_at))),
             UrlTokenType::TranslatedText => Ok(TagElement::TranslatedText(Text::new(content_at))),
             UrlTokenType::Variable => parser.parse_variable(content, content_at, start),
