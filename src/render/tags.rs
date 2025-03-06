@@ -92,8 +92,8 @@ impl Evaluate for Content<'_, '_> {
             Self::Py(obj) => obj.is_truthy().unwrap_or(false),
             Self::String(s) => !s.is_empty(),
             Self::HtmlSafe(s) => !s.is_empty(),
-            Self::Float(f) => *f == 0.0,
-            Self::Int(n) => *n == BigInt::ZERO,
+            Self::Float(f) => *f != 0.0,
+            Self::Int(n) => *n != BigInt::ZERO,
         }
     }
 }
