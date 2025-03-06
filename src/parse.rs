@@ -1012,6 +1012,11 @@ impl<'t, 'l, 'py> Parser<'t, 'l, 'py> {
                 parts,
             }),
             "if" => Either::Left(self.parse_if(at, parts, "if")?),
+            "endif" => Either::Right(EndTag {
+                end: EndTagType::EndIf,
+                at,
+                parts,
+            }),
             _ => todo!(),
         })
     }

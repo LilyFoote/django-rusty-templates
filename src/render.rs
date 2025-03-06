@@ -36,6 +36,29 @@ pub trait Render {
     ) -> RenderResult<'t>;
 }
 
+/// Trait for evaluating an expression in a boolean context
+pub trait Evaluate {
+    fn evaluate(&self, py: Python<'_>, template: TemplateString<'_>, context: &mut Context)
+        -> bool;
+}
+
+impl<T> Evaluate for Option<T>
+where
+    T: Evaluate,
+{
+    fn evaluate(
+        &self,
+        py: Python<'_>,
+        template: TemplateString<'_>,
+        context: &mut Context,
+    ) -> bool {
+        match self {
+            Some(inner) => inner.evaluate(py, template, context),
+            None => false,
+        }
+    }
+}
+
 /// All resolvable template elements can be rendered
 impl<T> Render for T
 where
@@ -51,5 +74,41 @@ where
             Some(content) => Ok(content.render(context)?),
             None => Ok(Cow::Borrowed("")),
         }
+    }
+}
+
+impl<T> Render for Vec<T>
+where
+    T: Render,
+{
+    fn render<'t>(
+        &self,
+        py: Python<'_>,
+        template: TemplateString<'t>,
+        context: &mut Context,
+    ) -> RenderResult<'t> {
+        Ok(Cow::Owned(
+            self.iter()
+                .map(|node| node.render(py, template, context))
+                .collect::<Result<Vec<_>, _>>()?
+                .join(""),
+        ))
+    }
+}
+
+impl<T> Render for Option<T>
+where
+    T: Render,
+{
+    fn render<'t>(
+        &self,
+        py: Python<'_>,
+        template: TemplateString<'t>,
+        context: &mut Context,
+    ) -> RenderResult<'t> {
+        Ok(match self {
+            Some(inner) => inner.render(py, template, context)?,
+            None => Cow::Borrowed(""),
+        })
     }
 }

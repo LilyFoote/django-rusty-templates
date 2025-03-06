@@ -146,4 +146,11 @@ impl<'t, 'py> Content<'t, 'py> {
             }
         })
     }
+
+    pub fn is_py_none(&self) -> bool {
+        match self {
+            Self::Py(object) => object.is_none(),
+            _ => false,
+        }
+    }
 }
