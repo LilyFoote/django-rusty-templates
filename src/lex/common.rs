@@ -2,6 +2,8 @@ use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 use unicode_xid::UnicodeXID;
 
+use super::QUOTE_LEN;
+
 const START_TRANSLATE_LEN: usize = 2;
 const END_TRANSLATE_LEN: usize = 1;
 
@@ -171,4 +173,18 @@ pub fn lex_variable_argument(
     let end = content.len();
     let at = (byte, end);
     Ok((at, byte + end, &rest[end..]))
+}
+
+pub fn text_content_at(at: (usize, usize)) -> (usize, usize) {
+    let (start, len) = at;
+    let start = start + QUOTE_LEN;
+    let len = len - 2 * QUOTE_LEN;
+    (start, len)
+}
+
+pub fn translated_text_content_at(at: (usize, usize)) -> (usize, usize) {
+    let (start, len) = at;
+    let start = start + START_TRANSLATE_LEN + QUOTE_LEN;
+    let len = len - START_TRANSLATE_LEN - END_TRANSLATE_LEN - 2 * QUOTE_LEN;
+    (start, len)
 }

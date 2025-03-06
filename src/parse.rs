@@ -403,20 +403,21 @@ fn parse_if_binding_power(
         None => return Err(ParseError::UnexpectedEndExpression { at: at.into() }),
     };
     let content = parser.template.content(token.at);
+    let token_at = token.content_at();
     let mut lhs = match token.token_type {
-        IfConditionTokenType::Numeric => IfCondition::Variable(parse_numeric(content, token.at)?),
-        IfConditionTokenType::Text => IfCondition::Variable(TagElement::Text(Text::new(token.at))),
+        IfConditionTokenType::Numeric => IfCondition::Variable(parse_numeric(content, token_at)?),
+        IfConditionTokenType::Text => IfCondition::Variable(TagElement::Text(Text::new(token_at))),
         IfConditionTokenType::TranslatedText => {
-            IfCondition::Variable(TagElement::TranslatedText(Text::new(token.at)))
+            IfCondition::Variable(TagElement::TranslatedText(Text::new(token_at)))
         }
         IfConditionTokenType::Variable => {
-            IfCondition::Variable(parser.parse_variable(content, token.at, token.at.0)?)
+            IfCondition::Variable(parser.parse_variable(content, token_at, token.at.0)?)
         }
         IfConditionTokenType::Not => {
             let binding_power = IfConditionTokenType::Not
                 .binding_power()
                 .expect("IfConditionTokenType::Not has a binding_power");
-            let if_condition = parse_if_binding_power(parser, lexer, binding_power, token.at)?;
+            let if_condition = parse_if_binding_power(parser, lexer, binding_power, token_at)?;
             IfCondition::Not(Box::new(if_condition))
         }
         _ => {

@@ -44,6 +44,15 @@ def test_render_and_literals():
     assert rust_template.render({"a": "a"}) == "foo"
 
 
+def test_render_or_literals():
+    template = """{% if a or "" or '' or 0 or 0.0 %}foo{% endif %}"""
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    assert django_template.render({"a": ""}) == ""
+    assert rust_template.render({"a": ""}) == ""
+
+
 @pytest.mark.parametrize("a", [True, False, "foo", 1, "", 0])
 @pytest.mark.parametrize("b", [True, False, "foo", 1, "", 0])
 def test_render_or(a, b):

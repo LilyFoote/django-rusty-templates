@@ -2,9 +2,11 @@ use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 use unicode_xid::UnicodeXID;
 
-use crate::lex::common::{lex_numeric, lex_text, lex_translated, lex_variable, LexerError};
+use crate::lex::common::{
+    lex_numeric, lex_text, lex_translated, lex_variable, text_content_at,
+    translated_text_content_at, LexerError,
+};
 use crate::lex::tag::TagParts;
-use crate::lex::{END_TRANSLATE_LEN, QUOTE_LEN, START_TRANSLATE_LEN};
 use crate::types::TemplateString;
 
 #[derive(Debug, PartialEq)]
@@ -27,18 +29,8 @@ impl UrlToken {
         match self.token_type {
             UrlTokenType::Variable => self.at,
             UrlTokenType::Numeric => self.at,
-            UrlTokenType::Text => {
-                let (start, len) = self.at;
-                let start = start + QUOTE_LEN;
-                let len = len - 2 * QUOTE_LEN;
-                (start, len)
-            }
-            UrlTokenType::TranslatedText => {
-                let (start, len) = self.at;
-                let start = start + START_TRANSLATE_LEN + QUOTE_LEN;
-                let len = len - START_TRANSLATE_LEN - END_TRANSLATE_LEN - 2 * QUOTE_LEN;
-                (start, len)
-            }
+            UrlTokenType::Text => text_content_at(self.at),
+            UrlTokenType::TranslatedText => translated_text_content_at(self.at),
         }
     }
 }

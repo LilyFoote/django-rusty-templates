@@ -1,4 +1,7 @@
-use crate::lex::common::{lex_numeric, lex_text, lex_translated, lex_variable, LexerError};
+use crate::lex::common::{
+    lex_numeric, lex_text, lex_translated, lex_variable, text_content_at,
+    translated_text_content_at, LexerError,
+};
 use crate::lex::tag::TagParts;
 use crate::types::TemplateString;
 
@@ -27,6 +30,16 @@ pub enum IfConditionTokenType {
 pub struct IfConditionToken {
     pub at: (usize, usize),
     pub token_type: IfConditionTokenType,
+}
+
+impl IfConditionToken {
+    pub fn content_at(&self) -> (usize, usize) {
+        match self.token_type {
+            IfConditionTokenType::Text => text_content_at(self.at),
+            IfConditionTokenType::TranslatedText => translated_text_content_at(self.at),
+            _ => self.at,
+        }
+    }
 }
 
 pub struct IfConditionLexer<'t> {
