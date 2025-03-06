@@ -189,10 +189,7 @@ def test_render_is(a, b):
     django_template = engines["django"].from_string(template)
     rust_template = engines["rusty"].from_string(template)
 
-    try:
-        expected = "foo" if a is b else "bar"
-    except TypeError:
-        expected = "bar"
+    expected = "foo" if a is b else "bar"
 
     assert django_template.render({"a": a, "b": b}) == expected
     assert rust_template.render({"a": a, "b": b}) == expected
@@ -205,10 +202,7 @@ def test_render_is_not(a, b):
     django_template = engines["django"].from_string(template)
     rust_template = engines["rusty"].from_string(template)
 
-    try:
-        expected = "foo" if a is not b else "bar"
-    except TypeError:
-        expected = "bar"
+    expected = "foo" if a is not b else "bar"
 
     assert django_template.render({"a": a, "b": b}) == expected
     assert rust_template.render({"a": a, "b": b}) == expected
