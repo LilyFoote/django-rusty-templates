@@ -78,7 +78,7 @@ pub fn lex_text<'t>(
             }
             Some(c) => c,
         };
-        count += 1;
+        count += next.len_utf8();
         if next == '\\' {
             count += 1;
             chars.next();
@@ -187,4 +187,20 @@ pub fn translated_text_content_at(at: (usize, usize)) -> (usize, usize) {
     let start = start + START_TRANSLATE_LEN + QUOTE_LEN;
     let len = len - START_TRANSLATE_LEN - END_TRANSLATE_LEN - 2 * QUOTE_LEN;
     (start, len)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lex_text_non_ascii() {
+        let template = "'N\u{ec655}'";
+        let mut chars = template.chars();
+        chars.next();
+        let (at, byte, rest) = lex_text(1, template, &mut chars, '\'').unwrap();
+        assert_eq!(at, (1, 7));
+        assert_eq!(byte, 8);
+        assert_eq!(rest, "");
+    }
 }
