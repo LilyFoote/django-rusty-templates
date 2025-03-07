@@ -237,7 +237,7 @@ def test_invalid_and_position():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × Not expecting 'and' in this position
    ╭────
  1 │ {% if and %}{{ foo }}{% endif %}
@@ -245,6 +245,7 @@ def test_invalid_and_position():
    ·        ╰── here
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_invalid_or_position():
@@ -258,7 +259,7 @@ def test_invalid_or_position():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × Not expecting 'or' in this position
    ╭────
  1 │ {% if or %}{{ foo }}{% endif %}
@@ -266,6 +267,7 @@ def test_invalid_or_position():
    ·        ╰── here
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_no_condition():
@@ -279,7 +281,7 @@ def test_no_condition():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × Missing boolean expression
    ╭────
  1 │ {% if %}{{ foo }}{% endif %}
@@ -287,6 +289,7 @@ def test_no_condition():
    ·     ╰── here
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_unexpected_end_of_expression():
@@ -300,7 +303,7 @@ def test_unexpected_end_of_expression():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × Unexpected end of expression
    ╭────
  1 │ {% if not %}{{ foo }}{% endif %}
@@ -308,6 +311,7 @@ def test_unexpected_end_of_expression():
    ·        ╰── after this
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_invalid_in_position():
@@ -321,7 +325,7 @@ def test_invalid_in_position():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × Not expecting 'in' in this position
    ╭────
  1 │ {% if in %}{{ foo }}{% endif %}
@@ -329,6 +333,7 @@ def test_invalid_in_position():
    ·        ╰── here
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_invalid_not_in_position():
@@ -342,7 +347,7 @@ def test_invalid_not_in_position():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × Not expecting 'not in' in this position
    ╭────
  1 │ {% if not in %}{{ foo }}{% endif %}
@@ -350,6 +355,7 @@ def test_invalid_not_in_position():
    ·          ╰── here
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_invalid_is_position():
@@ -363,7 +369,7 @@ def test_invalid_is_position():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × Not expecting 'is' in this position
    ╭────
  1 │ {% if is %}{{ foo }}{% endif %}
@@ -371,6 +377,7 @@ def test_invalid_is_position():
    ·        ╰── here
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_invalid_is_not_position():
@@ -384,7 +391,7 @@ def test_invalid_is_not_position():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × Not expecting 'is not' in this position
    ╭────
  1 │ {% if is not %}{{ foo }}{% endif %}
@@ -392,6 +399,7 @@ def test_invalid_is_not_position():
    ·          ╰── here
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_no_operator():
@@ -405,7 +413,7 @@ def test_no_operator():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × Unused expression 'bar' in if tag
    ╭────
  1 │ {% if foo bar spam %}{{ foo }}{% endif %}
@@ -413,3 +421,4 @@ def test_no_operator():
    ·            ╰── here
    ╰────
 """
+    assert str(exc_info.value) == expected
