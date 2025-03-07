@@ -1,6 +1,19 @@
 import pytest
 from django.template import engines
 from django.template.exceptions import TemplateSyntaxError
+from hypothesis import given
+from hypothesis.strategies import (
+    lists,
+    one_of,
+    none,
+    floats,
+    booleans,
+    integers,
+    text,
+    tuples,
+    just,
+    characters,
+)
 
 
 def test_render_if_true():
@@ -422,3 +435,61 @@ def test_no_operator():
    ╰────
 """
     assert str(exc_info.value) == expected
+
+
+VALID_VARIABLE_NAMES = text(
+    alphabet=characters(max_codepoint=91, categories=["Ll", "Lu", "Nd"]),
+    min_size=1,
+).filter(lambda s: not s[0].isdigit())
+
+
+VALID_ATOM = one_of(
+    none(),
+    booleans(),
+    floats(),
+    integers(),
+    text().map("'{}'".format),
+    text().map('"{}"'.format),
+    VALID_VARIABLE_NAMES,
+)
+
+VALID_ATOM = one_of(VALID_ATOM, VALID_ATOM.map("not {}".format))
+
+VALID_OPERATOR = one_of(
+    just("and"),
+    just("or"),
+    just("=="),
+    just("!="),
+    just("<"),
+    just(">"),
+    just("<="),
+    just(">="),
+    just("in"),
+    just("not in"),
+    just("is"),
+    just("is not"),
+)
+
+
+def to_template(parts):
+    flat = []
+    for var, op in parts:
+        flat.append(str(var))
+        flat.append(str(op))
+
+    condition = " ".join(flat[:-1])
+    return f"{{% if {condition} %}}truthy{{% else %}}falsey{{% endif %}}"
+
+
+@given(lists(tuples(VALID_ATOM, VALID_OPERATOR)).map(to_template))
+def test_render_same_result(template):
+    try:
+        django_template = engines["django"].from_string(template)
+    except TemplateSyntaxError:
+        with pytest.raises(TemplateSyntaxError):
+            engines["rusty"].from_string(template)
+    else:
+        rust_template = engines["rusty"].from_string(template)
+
+        context = {}
+        assert rust_template.render(context) == django_template.render(context)
