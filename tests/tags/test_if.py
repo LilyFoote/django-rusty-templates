@@ -659,3 +659,12 @@ def test_if_tag_split_by_newline():
    ╰────
 """
     assert str(exc_info.value) == expected
+
+
+def test_var_lte_var():
+    template = "{% if B <= A %}truthy{% else %}falsey{% endif %}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    assert django_template.render({}) == "falsey"
+    assert rust_template.render({}) == "falsey"

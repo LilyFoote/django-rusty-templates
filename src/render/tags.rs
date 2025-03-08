@@ -309,7 +309,6 @@ impl PyCmp<Option<Content<'_, '_>>> for Option<Content<'_, '_>> {
 
     fn lte(&self, other: &Option<Content<'_, '_>>) -> bool {
         match (self, other) {
-            (None, None) => true,
             (Some(obj), Some(other)) => obj.lte(other),
             _ => false,
         }
@@ -317,7 +316,6 @@ impl PyCmp<Option<Content<'_, '_>>> for Option<Content<'_, '_>> {
 
     fn gte(&self, other: &Option<Content<'_, '_>>) -> bool {
         match (self, other) {
-            (None, None) => true,
             (Some(obj), Some(other)) => obj.gte(other),
             _ => false,
         }
