@@ -457,7 +457,7 @@ impl Contains<bool> for Content<'_, '_> {
     fn contains(&self, other: bool) -> Option<bool> {
         match self {
             Self::Py(obj) => obj.contains(other).ok(),
-            _ => Some(false),
+            _ => None,
         }
     }
 }

@@ -588,3 +588,12 @@ def test_text_is_not_not_variable():
 
     assert django_template.render({}) == "truthy"
     assert rust_template.render({}) == "truthy"
+
+
+def test_none_equal_none_not_in_zero():
+    template = '{% if None == None not in 0.0 %}truthy{% else %}falsey{% endif %}'
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    assert django_template.render({}) == "falsey"
+    assert rust_template.render({}) == "falsey"
