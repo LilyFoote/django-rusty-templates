@@ -35,6 +35,15 @@ def test_render_if_false():
     assert rust_template.render({}) == ""
 
 
+def test_render_if_true_literal():
+    template = "{% if True %}foo{% endif %}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    assert django_template.render({}) == "foo"
+    assert rust_template.render({}) == "foo"
+
+
 @pytest.mark.parametrize("a", [True, False, "foo", 1, "", 0])
 @pytest.mark.parametrize("b", [True, False, "foo", 1, "", 0])
 def test_render_and(a, b):

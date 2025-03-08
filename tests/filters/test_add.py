@@ -37,7 +37,8 @@ def test_add_no_argument():
         rust_template.render({"foo": 1})
 
     expected = """\
-  × Failed lookup for key [bar] in {"foo": 1}
+  × Failed lookup for key [bar] in {"False": False, "None": None, "True":
+  │ True, "foo": 1}
    ╭────
  1 │ {{ foo|add:bar }}
    ·            ─┬─
