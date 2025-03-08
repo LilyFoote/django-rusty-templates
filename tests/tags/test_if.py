@@ -511,3 +511,12 @@ def test_render_none_is_not_none_equal_none():
 
     assert django_template.render({}) == "falsey"
     assert rust_template.render({}) == "falsey"
+
+
+def test_number_less_than_false():
+    template = "{% if 1 < False %}truthy{% else %}falsey{% endif %}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    assert django_template.render({}) == "falsey"
+    assert rust_template.render({}) == "falsey"
