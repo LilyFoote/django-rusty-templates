@@ -552,3 +552,12 @@ def test_incomplete_escape():
    ╰────
 """
     assert str(exc_info.value) == expected
+
+
+def test_zero_less_than_not_none():
+    template = "{% if 0.0 < not None %}truthy{% else %}falsey{% endif %}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    assert django_template.render({}) == "truthy"
+    assert rust_template.render({}) == "truthy"

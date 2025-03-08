@@ -328,6 +328,18 @@ impl PyCmp<bool> for Option<Content<'_, '_>> {
     fn eq(&self, other: &bool) -> bool {
         match self {
             Some(Content::Py(obj)) => obj.eq(other).unwrap_or(false),
+            Some(Content::Float(f)) => {
+                *f == match other {
+                    true => 1.0,
+                    false => 0.0,
+                }
+            }
+            Some(Content::Int(n)) => {
+                *n == match other {
+                    true => 1.into(),
+                    false => 0.into(),
+                }
+            }
             _ => false,
         }
     }
@@ -335,6 +347,18 @@ impl PyCmp<bool> for Option<Content<'_, '_>> {
     fn lt(&self, other: &bool) -> bool {
         match self {
             Some(Content::Py(obj)) => obj.lt(other).unwrap_or(false),
+            Some(Content::Float(f)) => {
+                *f < match other {
+                    true => 1.0,
+                    false => 0.0,
+                }
+            }
+            Some(Content::Int(n)) => {
+                *n < match other {
+                    true => 1.into(),
+                    false => 0.into(),
+                }
+            }
             _ => false,
         }
     }
@@ -342,6 +366,18 @@ impl PyCmp<bool> for Option<Content<'_, '_>> {
     fn gt(&self, other: &bool) -> bool {
         match self {
             Some(Content::Py(obj)) => obj.gt(other).unwrap_or(false),
+            Some(Content::Float(f)) => {
+                *f > match other {
+                    true => 1.0,
+                    false => 0.0,
+                }
+            }
+            Some(Content::Int(n)) => {
+                *n > match other {
+                    true => 1.into(),
+                    false => 0.into(),
+                }
+            }
             _ => false,
         }
     }
@@ -349,6 +385,18 @@ impl PyCmp<bool> for Option<Content<'_, '_>> {
     fn lte(&self, other: &bool) -> bool {
         match self {
             Some(Content::Py(obj)) => obj.le(other).unwrap_or(false),
+            Some(Content::Float(f)) => {
+                *f <= match other {
+                    true => 1.0,
+                    false => 0.0,
+                }
+            }
+            Some(Content::Int(n)) => {
+                *n <= match other {
+                    true => 1.into(),
+                    false => 0.into(),
+                }
+            }
             _ => false,
         }
     }
@@ -356,6 +404,18 @@ impl PyCmp<bool> for Option<Content<'_, '_>> {
     fn gte(&self, other: &bool) -> bool {
         match self {
             Some(Content::Py(obj)) => obj.ge(other).unwrap_or(false),
+            Some(Content::Float(f)) => {
+                *f >= match other {
+                    true => 1.0,
+                    false => 0.0,
+                }
+            }
+            Some(Content::Int(n)) => {
+                *n >= match other {
+                    true => 1.into(),
+                    false => 0.into(),
+                }
+            }
             _ => false,
         }
     }
