@@ -561,3 +561,12 @@ def test_zero_less_than_not_none():
 
     assert django_template.render({}) == "truthy"
     assert rust_template.render({}) == "truthy"
+
+
+def test_zero_not_in_zero():
+    template = "{% if 0.0 not in 0.0 %}truthy{% else %}falsey{% endif %}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    assert django_template.render({}) == "falsey"
+    assert rust_template.render({}) == "falsey"

@@ -427,29 +427,29 @@ trait Contains<T> {
 
 impl Contains<Option<Content<'_, '_>>> for Content<'_, '_> {
     fn contains(&self, other: Option<Content<'_, '_>>) -> Option<bool> {
-        Some(match other {
+        match other {
             None => match self {
-                Self::Py(obj) => obj.contains(PyNone::get(obj.py())).ok()?,
-                _ => false,
+                Self::Py(obj) => obj.contains(PyNone::get(obj.py())).ok(),
+                _ => None,
             },
             Some(Content::Py(other)) => {
                 let obj = self.to_py(other.py()).ok()?;
-                obj.contains(other).ok()?
+                obj.contains(other).ok()
             }
             Some(Content::String(other)) | Some(Content::HtmlSafe(other)) => match self {
-                Self::String(obj) | Self::HtmlSafe(obj) => obj.contains(other.as_ref()),
-                Self::Int(_) | Self::Float(_) => false,
-                Self::Py(obj) => obj.contains(other).unwrap_or(false),
+                Self::String(obj) | Self::HtmlSafe(obj) => Some(obj.contains(other.as_ref())),
+                Self::Int(_) | Self::Float(_) => None,
+                Self::Py(obj) => obj.contains(other).ok(),
             },
             Some(Content::Int(n)) => match self {
-                Self::Py(obj) => obj.contains(n).ok()?,
-                _ => false,
+                Self::Py(obj) => obj.contains(n).ok(),
+                _ => None,
             },
             Some(Content::Float(f)) => match self {
-                Self::Py(obj) => obj.contains(f).ok()?,
-                _ => false,
+                Self::Py(obj) => obj.contains(f).ok(),
+                _ => None,
             },
-        })
+        }
     }
 }
 
