@@ -35,6 +35,16 @@ def test_render_if_false():
     assert rust_template.render({}) == ""
 
 
+def test_render_elif():
+    template = "{% if False %}foo{% elif True %}bar{% else %}baz{% endif %}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    assert django_template.render() == "bar"
+    assert rust_template.render() == "bar"
+
+
+
 def test_render_if_true_literal():
     template = "{% if True %}foo{% endif %}"
     django_template = engines["django"].from_string(template)
