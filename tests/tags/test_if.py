@@ -480,6 +480,29 @@ VALID_OPERATOR = one_of(
 )
 
 
+VALID_ATOM_NO_INTEGERS = one_of(
+    none(),
+    booleans(),
+    floats(),
+    text().map("'{}'".format),
+    text().map('"{}"'.format),
+    VALID_VARIABLE_NAMES,
+)
+
+VALID_OPERATOR_NO_IS = one_of(
+    just("and"),
+    just("or"),
+    just("=="),
+    just("!="),
+    just("<"),
+    just(">"),
+    just("<="),
+    just(">="),
+    just("in"),
+    just("not in"),
+)
+
+
 def to_template(parts):
     flat = []
     for var, op in parts:
@@ -490,8 +513,24 @@ def to_template(parts):
     return f"{{% if {condition} %}}truthy{{% else %}}falsey{{% endif %}}"
 
 
-@given(lists(tuples(VALID_ATOM, VALID_OPERATOR)).map(to_template))
-def test_render_same_result(template):
+@given(lists(tuples(VALID_ATOM, VALID_OPERATOR_NO_IS)).map(to_template))
+def test_render_same_result_no_is(template):
+    try:
+        django_template = engines["django"].from_string(template)
+    except TemplateSyntaxError:
+        with pytest.raises(TemplateSyntaxError):
+            engines["rusty"].from_string(template)
+    else:
+        rust_template = engines["rusty"].from_string(template)
+
+        context = {}
+        assert rust_template.render(context) == django_template.render(context)
+
+
+@given(lists(tuples(VALID_ATOM_NO_INTEGERS, VALID_OPERATOR)).map(to_template))
+def test_render_same_result_no_integers(template):
+    # We can't test `is` with integers without triggering failures due to Python's
+    # small integer cache optimisation.
     try:
         django_template = engines["django"].from_string(template)
     except TemplateSyntaxError:
