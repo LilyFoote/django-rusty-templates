@@ -66,7 +66,7 @@ def test_resolve_filter_arg_error():
     with pytest.raises(VariableDoesNotExist) as exc_info:
         rust_template.render({"num": 2, "foo": {"bar": 3}})
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × Failed lookup for key [1b] in 3
    ╭─[2:17]
  1 │ {% load multiply from custom_filters %}
@@ -76,6 +76,7 @@ def test_resolve_filter_arg_error():
    ·                    ╰── 3
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_filter_error():
