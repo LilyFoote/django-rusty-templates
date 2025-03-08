@@ -520,3 +520,35 @@ def test_number_less_than_false():
 
     assert django_template.render({}) == "falsey"
     assert rust_template.render({}) == "falsey"
+
+
+def test_escaped_unicode_escape():
+    template = "{% if '\\\x80' %}truthy{% else %}falsey{% endif %}"
+
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    assert django_template.render({}) == "truthy"
+    assert rust_template.render({}) == "truthy"
+
+
+def test_incomplete_escape():
+    template = "{% if '\\ %}truthy{% else %}falsey{% endif %}"
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["django"].from_string(template)
+
+    assert str(exc_info.value) == "Could not parse the remainder: ''\\' from ''\\'"
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["rusty"].from_string(template)
+
+    expected = """\
+  × Expected a complete string literal
+   ╭────
+ 1 │ {% if '\\ %}truthy{% else %}falsey{% endif %}
+   ·       ─┬
+   ·        ╰── here
+   ╰────
+"""
+    assert str(exc_info.value) == expected

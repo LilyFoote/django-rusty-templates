@@ -80,8 +80,14 @@ pub fn lex_text<'t>(
         };
         count += next.len_utf8();
         if next == '\\' {
-            count += 1;
-            chars.next();
+            let next = match chars.next() {
+                Some(next) => next,
+                None => {
+                    let at = (byte, count);
+                    return Err(LexerError::IncompleteString { at: at.into() });
+                }
+            };
+            count += next.len_utf8();
         } else if next == end {
             let at = (byte, count);
             let rest = &rest[count..];
