@@ -513,6 +513,15 @@ def test_render_none_is_not_none_equal_none():
     assert rust_template.render({}) == "falsey"
 
 
+def test_render_none_equal_none_is_not_not_none():
+    template = "{% if None == None is not not None %}truthy{% else %}falsey{% endif %}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    assert django_template.render({}) == "falsey"
+    assert rust_template.render({}) == "falsey"
+
+
 def test_number_less_than_false():
     template = "{% if 1 < False %}truthy{% else %}falsey{% endif %}"
     django_template = engines["django"].from_string(template)
@@ -570,3 +579,12 @@ def test_zero_not_in_zero():
 
     assert django_template.render({}) == "falsey"
     assert rust_template.render({}) == "falsey"
+
+
+def test_text_is_not_not_variable():
+    template = '{% if "õeS" is not not WQWJXO52RWIA0D %}truthy{% else %}falsey{% endif %}'
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    assert django_template.render({}) == "truthy"
+    assert rust_template.render({}) == "truthy"

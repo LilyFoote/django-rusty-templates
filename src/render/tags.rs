@@ -693,7 +693,22 @@ impl Evaluate for IfCondition {
                         _ => true,
                     }
                 }
-                _ => true,
+                (IfCondition::Variable(l), r) => {
+                    let left = match l.resolve(py, template, context) {
+                        Ok(Some(left)) => left,
+                        _ => return true,
+                    };
+                    let right = r.evaluate(py, template, context);
+                    match left {
+                        Content::Py(left) => !left.is(PyBool::new(py, right).as_any()),
+                        _ => true,
+                    }
+                }
+                (l, r) => {
+                    let left = l.evaluate(py, template, context);
+                    let right = r.evaluate(py, template, context);
+                    left != right
+                }
             },
         }
     }
