@@ -443,7 +443,7 @@ fn parse_if_binding_power(
                 })
             }
         };
-        if binding_power < min_binding_power {
+        if binding_power <= min_binding_power {
             break;
         }
 

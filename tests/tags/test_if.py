@@ -502,3 +502,12 @@ def test_render_same_result(template):
 
         context = {}
         assert rust_template.render(context) == django_template.render(context)
+
+
+def test_render_none_is_not_none_equal_none():
+    template = "{% if None is not None == None %}truthy{% else %}falsey{% endif %}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    assert django_template.render({}) == "falsey"
+    assert rust_template.render({}) == "falsey"
