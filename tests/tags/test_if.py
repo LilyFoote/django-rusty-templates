@@ -597,3 +597,26 @@ def test_none_equal_none_not_in_zero():
 
     assert django_template.render({}) == "falsey"
     assert rust_template.render({}) == "falsey"
+
+
+def test_if_tag_split_by_newline():
+    template = "{% if '\n' %}truthy{% else %}falsey{% endif %}"
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["django"].from_string(template)
+
+    assert str(exc_info.value) == "Invalid block tag on line 2: 'else'. Did you forget to register or load this tag?"
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["rusty"].from_string(template)
+
+    expected = """\
+  × Unexpected tag else
+   ╭─[2:11]
+ 1 │ {% if '
+ 2 │ ' %}truthy{% else %}falsey{% endif %}
+   ·           ─────┬────
+   ·                ╰── unexpected tag
+   ╰────
+"""
+    assert str(exc_info.value) == expected
