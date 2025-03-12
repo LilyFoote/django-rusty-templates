@@ -52,7 +52,7 @@ pub fn lex_variable(byte: usize, rest: &str) -> ((usize, usize), usize, &str) {
                 _ => {}
             },
             _ if in_text.is_some() => {}
-            c if !c.is_xid_continue() && c != '.' && c != '|' && c != ':' => break,
+            c if !c.is_xid_continue() && c != '.' && c != '|' && c != ':' && c != '-' => break,
             _ => {}
         }
         end += c.len_utf8();
