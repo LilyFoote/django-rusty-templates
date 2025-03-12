@@ -55,7 +55,7 @@ pub fn lex_variable(byte: usize, rest: &str) -> ((usize, usize), usize, &str) {
             c if !c.is_xid_continue() && c != '.' && c != '|' && c != ':' => break,
             _ => {}
         }
-        end += 1;
+        end += c.len_utf8();
     }
     let at = (byte, end);
     let rest = &rest[end..];
@@ -207,6 +207,15 @@ mod tests {
         let (at, byte, rest) = lex_text(1, template, &mut chars, '\'').unwrap();
         assert_eq!(at, (1, 7));
         assert_eq!(byte, 8);
+        assert_eq!(rest, "");
+    }
+
+    #[test]
+    fn test_lex_argument_non_ascii() {
+        let template = "ZJ5G4YXZJUH6|default:\"#`´କ¯\"";
+        let (at, byte, rest) = lex_variable(0, template);
+        assert_eq!(at, (0, 32));
+        assert_eq!(byte, 32);
         assert_eq!(rest, "");
     }
 }
