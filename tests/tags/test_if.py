@@ -472,6 +472,10 @@ VALID_ATOM = one_of(
     VALID_VARIABLE_NAMES,
 )
 
+VALID_DEFAULT = tuples(VALID_VARIABLE_NAMES, VALID_ATOM).map(lambda t: f"{t[0]}|default:{t[1]}")
+
+VALID_ATOM = one_of(VALID_ATOM, VALID_DEFAULT)
+
 VALID_ATOM = one_of(VALID_ATOM, VALID_ATOM.map("not {}".format))
 
 VALID_OPERATOR = one_of(
