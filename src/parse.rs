@@ -21,7 +21,9 @@ use crate::filters::SlugifyFilter;
 use crate::lex::autoescape::{lex_autoescape_argument, AutoescapeEnabled, AutoescapeError};
 use crate::lex::common::LexerError;
 use crate::lex::core::{Lexer, TokenType};
-use crate::lex::ifcondition::{IfConditionLexer, IfConditionTokenType};
+use crate::lex::ifcondition::{
+    IfConditionAtom, IfConditionLexer, IfConditionOperator, IfConditionTokenType,
+};
 use crate::lex::load::{LoadLexer, LoadToken};
 use crate::lex::tag::{lex_tag, TagLexerError, TagParts};
 use crate::lex::url::{UrlLexer, UrlLexerError, UrlToken, UrlTokenType};
@@ -405,19 +407,21 @@ fn parse_if_binding_power(
     let content = parser.template.content(token.at);
     let token_at = token.content_at();
     let mut lhs = match token.token_type {
-        IfConditionTokenType::Numeric => IfCondition::Variable(parse_numeric(content, token_at)?),
-        IfConditionTokenType::Text => IfCondition::Variable(TagElement::Text(Text::new(token_at))),
-        IfConditionTokenType::TranslatedText => {
+        IfConditionTokenType::Atom(IfConditionAtom::Numeric) => {
+            IfCondition::Variable(parse_numeric(content, token_at)?)
+        }
+        IfConditionTokenType::Atom(IfConditionAtom::Text) => {
+            IfCondition::Variable(TagElement::Text(Text::new(token_at)))
+        }
+        IfConditionTokenType::Atom(IfConditionAtom::TranslatedText) => {
             IfCondition::Variable(TagElement::TranslatedText(Text::new(token_at)))
         }
-        IfConditionTokenType::Variable => {
+        IfConditionTokenType::Atom(IfConditionAtom::Variable) => {
             IfCondition::Variable(parser.parse_variable(content, token_at, token.at.0)?)
         }
         IfConditionTokenType::Not => {
-            let binding_power = IfConditionTokenType::Not
-                .binding_power()
-                .expect("IfConditionTokenType::Not has a binding_power");
-            let if_condition = parse_if_binding_power(parser, lexer, binding_power, token_at)?;
+            const NOT_BINDING_POWER: u8 = 8;
+            let if_condition = parse_if_binding_power(parser, lexer, NOT_BINDING_POWER, token_at)?;
             IfCondition::Not(Box::new(if_condition))
         }
         _ => {
@@ -434,15 +438,16 @@ fn parse_if_binding_power(
             Some(Err(e)) => return Err(e.clone().into()),
             Some(Ok(token)) => token,
         };
-        let binding_power = match token.token_type.binding_power() {
-            Some(binding_power) => binding_power,
-            None => {
+        let operator = match &token.token_type {
+            IfConditionTokenType::Atom(_) | IfConditionTokenType::Not => {
                 return Err(ParseError::UnusedExpression {
                     at: token.at.into(),
                     expression: parser.template.content(token.at).to_string(),
                 })
             }
+            IfConditionTokenType::Operator(operator) => *operator,
         };
+        let binding_power = operator.binding_power();
         if binding_power <= min_binding_power {
             break;
         }
@@ -455,21 +460,17 @@ fn parse_if_binding_power(
             .expect("already `return Err` in match peek()");
         let rhs = parse_if_binding_power(parser, lexer, binding_power, token.at)?;
 
-        lhs = token
-            .token_type
-            .build_condition(lhs, rhs)
-            .expect("we only get here with a suitable token type")
+        lhs = operator.build_condition(lhs, rhs)
     }
 
     Ok(lhs)
 }
 
-impl IfConditionTokenType {
-    fn binding_power(&self) -> Option<u8> {
-        Some(match self {
+impl IfConditionOperator {
+    fn binding_power(&self) -> u8 {
+        match self {
             Self::Or => 6,
             Self::And => 7,
-            Self::Not => 8,
             Self::In => 9,
             Self::NotIn => 9,
             Self::Is => 10,
@@ -480,13 +481,12 @@ impl IfConditionTokenType {
             Self::GreaterThanEqual => 10,
             Self::LessThan => 10,
             Self::LessThanEqual => 10,
-            _ => return None,
-        })
+        }
     }
 
-    fn build_condition(&self, lhs: IfCondition, rhs: IfCondition) -> Option<IfCondition> {
+    fn build_condition(&self, lhs: IfCondition, rhs: IfCondition) -> IfCondition {
         let inner = Box::new((lhs, rhs));
-        Some(match self {
+        match self {
             Self::And => IfCondition::And(inner),
             Self::Or => IfCondition::Or(inner),
             Self::In => IfCondition::In(inner),
@@ -499,8 +499,7 @@ impl IfConditionTokenType {
             Self::GreaterThanEqual => IfCondition::GreaterThanEqual(inner),
             Self::LessThan => IfCondition::LessThan(inner),
             Self::LessThanEqual => IfCondition::LessThanEqual(inner),
-            _ => return None,
-        })
+        }
     }
 }
 
@@ -2224,30 +2223,6 @@ mod tests {
             assert!(is_not.py_eq(&cloned, py));
 
             assert!(!and.py_eq(&or, py));
-        })
-    }
-
-    #[test]
-    fn test_variable_token_binding_power() {
-        pyo3::prepare_freethreaded_python();
-
-        Python::with_gil(|py| {
-            let var = IfConditionTokenType::Variable;
-            assert_eq!(var.binding_power(), None);
-        })
-    }
-
-    #[test]
-    fn test_variable_token_build_condition() {
-        pyo3::prepare_freethreaded_python();
-
-        Python::with_gil(|py| {
-            let var_token = IfConditionTokenType::Variable;
-
-            let var_1 = IfCondition::Variable(TagElement::Variable(Variable { at: (7, 14) }));
-            let var_2 = IfCondition::Variable(TagElement::Variable(Variable { at: (20, 35) }));
-
-            assert_eq!(var_token.build_condition(var_1, var_2), None);
         })
     }
 }

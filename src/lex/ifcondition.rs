@@ -6,14 +6,17 @@ use crate::lex::tag::TagParts;
 use crate::types::TemplateString;
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum IfConditionTokenType {
+pub enum IfConditionAtom {
     Numeric,
     Text,
     TranslatedText,
     Variable,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum IfConditionOperator {
     And,
     Or,
-    Not,
     Equal,
     NotEqual,
     LessThan,
@@ -27,6 +30,13 @@ pub enum IfConditionTokenType {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub enum IfConditionTokenType {
+    Atom(IfConditionAtom),
+    Operator(IfConditionOperator),
+    Not,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub struct IfConditionToken {
     pub at: (usize, usize),
     pub token_type: IfConditionTokenType,
@@ -35,8 +45,10 @@ pub struct IfConditionToken {
 impl IfConditionToken {
     pub fn content_at(&self) -> (usize, usize) {
         match self.token_type {
-            IfConditionTokenType::Text => text_content_at(self.at),
-            IfConditionTokenType::TranslatedText => translated_text_content_at(self.at),
+            IfConditionTokenType::Atom(IfConditionAtom::Text) => text_content_at(self.at),
+            IfConditionTokenType::Atom(IfConditionAtom::TranslatedText) => {
+                translated_text_content_at(self.at)
+            }
             _ => self.at,
         }
     }
@@ -79,7 +91,7 @@ impl<'t> IfConditionLexer<'t> {
         self.rest = rest;
         self.byte = byte;
         IfConditionToken {
-            token_type: IfConditionTokenType::Variable,
+            token_type: IfConditionTokenType::Atom(IfConditionAtom::Variable),
             at,
         }
     }
@@ -90,7 +102,7 @@ impl<'t> IfConditionLexer<'t> {
         self.byte = byte;
         IfConditionToken {
             at,
-            token_type: IfConditionTokenType::Numeric,
+            token_type: IfConditionTokenType::Atom(IfConditionAtom::Numeric),
         }
     }
 
@@ -104,7 +116,7 @@ impl<'t> IfConditionLexer<'t> {
                 self.rest = rest;
                 self.byte = byte;
                 Ok(IfConditionToken {
-                    token_type: IfConditionTokenType::Text,
+                    token_type: IfConditionTokenType::Atom(IfConditionAtom::Text),
                     at,
                 })
             }
@@ -124,7 +136,7 @@ impl<'t> IfConditionLexer<'t> {
                 self.rest = rest;
                 self.byte = byte;
                 Ok(IfConditionToken {
-                    token_type: IfConditionTokenType::TranslatedText,
+                    token_type: IfConditionTokenType::Atom(IfConditionAtom::TranslatedText),
                     at,
                 })
             }
@@ -169,8 +181,14 @@ impl Iterator for IfConditionLexer<'_> {
             .find(char::is_whitespace)
             .unwrap_or(self.rest.len());
         let (token_type, index) = match &self.rest[..index] {
-            "and" => (IfConditionTokenType::And, index),
-            "or" => (IfConditionTokenType::Or, index),
+            "and" => (
+                IfConditionTokenType::Operator(IfConditionOperator::And),
+                index,
+            ),
+            "or" => (
+                IfConditionTokenType::Operator(IfConditionOperator::Or),
+                index,
+            ),
             "not" => {
                 let rest = &self.rest[index..];
                 let whitespace_index = rest
@@ -180,19 +198,40 @@ impl Iterator for IfConditionLexer<'_> {
                 let next_index = rest.find(char::is_whitespace).unwrap_or(rest.len());
                 match &rest[..next_index] {
                     "in" => (
-                        IfConditionTokenType::NotIn,
+                        IfConditionTokenType::Operator(IfConditionOperator::NotIn),
                         index + whitespace_index + next_index,
                     ),
                     _ => (IfConditionTokenType::Not, index),
                 }
             }
-            "==" => (IfConditionTokenType::Equal, index),
-            "!=" => (IfConditionTokenType::NotEqual, index),
-            "<" => (IfConditionTokenType::LessThan, index),
-            ">" => (IfConditionTokenType::GreaterThan, index),
-            "<=" => (IfConditionTokenType::LessThanEqual, index),
-            ">=" => (IfConditionTokenType::GreaterThanEqual, index),
-            "in" => (IfConditionTokenType::In, index),
+            "==" => (
+                IfConditionTokenType::Operator(IfConditionOperator::Equal),
+                index,
+            ),
+            "!=" => (
+                IfConditionTokenType::Operator(IfConditionOperator::NotEqual),
+                index,
+            ),
+            "<" => (
+                IfConditionTokenType::Operator(IfConditionOperator::LessThan),
+                index,
+            ),
+            ">" => (
+                IfConditionTokenType::Operator(IfConditionOperator::GreaterThan),
+                index,
+            ),
+            "<=" => (
+                IfConditionTokenType::Operator(IfConditionOperator::LessThanEqual),
+                index,
+            ),
+            ">=" => (
+                IfConditionTokenType::Operator(IfConditionOperator::GreaterThanEqual),
+                index,
+            ),
+            "in" => (
+                IfConditionTokenType::Operator(IfConditionOperator::In),
+                index,
+            ),
             "is" => {
                 let rest = &self.rest[index..];
                 let whitespace_index = rest
@@ -202,10 +241,13 @@ impl Iterator for IfConditionLexer<'_> {
                 let next_index = rest.find(char::is_whitespace).unwrap_or(rest.len());
                 match &rest[..next_index] {
                     "not" => (
-                        IfConditionTokenType::IsNot,
+                        IfConditionTokenType::Operator(IfConditionOperator::IsNot),
                         index + whitespace_index + next_index,
                     ),
-                    _ => (IfConditionTokenType::Is, index),
+                    _ => (
+                        IfConditionTokenType::Operator(IfConditionOperator::Is),
+                        index,
+                    ),
                 }
             }
             _ => return Some(self.lex_condition()),
@@ -236,7 +278,7 @@ mod tests {
 
         let foo = IfConditionToken {
             at: (6, 3),
-            token_type: IfConditionTokenType::Variable,
+            token_type: IfConditionTokenType::Atom(IfConditionAtom::Variable),
         };
         assert_eq!(tokens, vec![Ok(foo)]);
     }
@@ -250,7 +292,7 @@ mod tests {
 
         let numeric = IfConditionToken {
             at: (6, 3),
-            token_type: IfConditionTokenType::Numeric,
+            token_type: IfConditionTokenType::Atom(IfConditionAtom::Numeric),
         };
         assert_eq!(tokens, vec![Ok(numeric)]);
     }
@@ -264,7 +306,7 @@ mod tests {
 
         let text = IfConditionToken {
             at: (6, 5),
-            token_type: IfConditionTokenType::Text,
+            token_type: IfConditionTokenType::Atom(IfConditionAtom::Text),
         };
         assert_eq!(tokens, vec![Ok(text)]);
     }
@@ -278,7 +320,7 @@ mod tests {
 
         let text = IfConditionToken {
             at: (6, 5),
-            token_type: IfConditionTokenType::Text,
+            token_type: IfConditionTokenType::Atom(IfConditionAtom::Text),
         };
         assert_eq!(tokens, vec![Ok(text)]);
     }
@@ -292,7 +334,7 @@ mod tests {
 
         let text = IfConditionToken {
             at: (6, 8),
-            token_type: IfConditionTokenType::TranslatedText,
+            token_type: IfConditionTokenType::Atom(IfConditionAtom::TranslatedText),
         };
         assert_eq!(tokens, vec![Ok(text)]);
     }
@@ -306,7 +348,7 @@ mod tests {
 
         let and = IfConditionToken {
             at: (6, 3),
-            token_type: IfConditionTokenType::And,
+            token_type: IfConditionTokenType::Operator(IfConditionOperator::And),
         };
         assert_eq!(tokens, vec![Ok(and)]);
     }
@@ -320,7 +362,7 @@ mod tests {
 
         let or = IfConditionToken {
             at: (6, 2),
-            token_type: IfConditionTokenType::Or,
+            token_type: IfConditionTokenType::Operator(IfConditionOperator::Or),
         };
         assert_eq!(tokens, vec![Ok(or)]);
     }
@@ -348,7 +390,7 @@ mod tests {
 
         let equal = IfConditionToken {
             at: (6, 2),
-            token_type: IfConditionTokenType::Equal,
+            token_type: IfConditionTokenType::Operator(IfConditionOperator::Equal),
         };
         assert_eq!(tokens, vec![Ok(equal)]);
     }
@@ -362,7 +404,7 @@ mod tests {
 
         let not_equal = IfConditionToken {
             at: (6, 2),
-            token_type: IfConditionTokenType::NotEqual,
+            token_type: IfConditionTokenType::Operator(IfConditionOperator::NotEqual),
         };
         assert_eq!(tokens, vec![Ok(not_equal)]);
     }
@@ -376,7 +418,7 @@ mod tests {
 
         let less_than = IfConditionToken {
             at: (6, 1),
-            token_type: IfConditionTokenType::LessThan,
+            token_type: IfConditionTokenType::Operator(IfConditionOperator::LessThan),
         };
         assert_eq!(tokens, vec![Ok(less_than)]);
     }
@@ -390,7 +432,7 @@ mod tests {
 
         let greater_than = IfConditionToken {
             at: (6, 1),
-            token_type: IfConditionTokenType::GreaterThan,
+            token_type: IfConditionTokenType::Operator(IfConditionOperator::GreaterThan),
         };
         assert_eq!(tokens, vec![Ok(greater_than)]);
     }
@@ -404,7 +446,7 @@ mod tests {
 
         let less_equal = IfConditionToken {
             at: (6, 2),
-            token_type: IfConditionTokenType::LessThanEqual,
+            token_type: IfConditionTokenType::Operator(IfConditionOperator::LessThanEqual),
         };
         assert_eq!(tokens, vec![Ok(less_equal)]);
     }
@@ -418,7 +460,7 @@ mod tests {
 
         let greater_equal = IfConditionToken {
             at: (6, 2),
-            token_type: IfConditionTokenType::GreaterThanEqual,
+            token_type: IfConditionTokenType::Operator(IfConditionOperator::GreaterThanEqual),
         };
         assert_eq!(tokens, vec![Ok(greater_equal)]);
     }
@@ -432,7 +474,7 @@ mod tests {
 
         let in_ = IfConditionToken {
             at: (6, 2),
-            token_type: IfConditionTokenType::In,
+            token_type: IfConditionTokenType::Operator(IfConditionOperator::In),
         };
         assert_eq!(tokens, vec![Ok(in_)]);
     }
@@ -446,7 +488,7 @@ mod tests {
 
         let not_in = IfConditionToken {
             at: (6, 6),
-            token_type: IfConditionTokenType::NotIn,
+            token_type: IfConditionTokenType::Operator(IfConditionOperator::NotIn),
         };
         assert_eq!(tokens, vec![Ok(not_in)]);
     }
@@ -460,7 +502,7 @@ mod tests {
 
         let is = IfConditionToken {
             at: (6, 2),
-            token_type: IfConditionTokenType::Is,
+            token_type: IfConditionTokenType::Operator(IfConditionOperator::Is),
         };
         assert_eq!(tokens, vec![Ok(is)]);
     }
@@ -474,7 +516,7 @@ mod tests {
 
         let is_not = IfConditionToken {
             at: (6, 6),
-            token_type: IfConditionTokenType::IsNot,
+            token_type: IfConditionTokenType::Operator(IfConditionOperator::IsNot),
         };
         assert_eq!(tokens, vec![Ok(is_not)]);
     }
@@ -488,39 +530,39 @@ mod tests {
 
         let foobar = IfConditionToken {
             at: (6, 22),
-            token_type: IfConditionTokenType::Variable,
+            token_type: IfConditionTokenType::Atom(IfConditionAtom::Variable),
         };
         let and = IfConditionToken {
             at: (29, 3),
-            token_type: IfConditionTokenType::And,
+            token_type: IfConditionTokenType::Operator(IfConditionOperator::And),
         };
         let count = IfConditionToken {
             at: (33, 5),
-            token_type: IfConditionTokenType::Variable,
+            token_type: IfConditionTokenType::Atom(IfConditionAtom::Variable),
         };
         let greater_equal = IfConditionToken {
             at: (39, 2),
-            token_type: IfConditionTokenType::GreaterThanEqual,
+            token_type: IfConditionTokenType::Operator(IfConditionOperator::GreaterThanEqual),
         };
         let numeric = IfConditionToken {
             at: (42, 3),
-            token_type: IfConditionTokenType::Numeric,
+            token_type: IfConditionTokenType::Atom(IfConditionAtom::Numeric),
         };
         let or = IfConditionToken {
             at: (46, 2),
-            token_type: IfConditionTokenType::Or,
+            token_type: IfConditionTokenType::Operator(IfConditionOperator::Or),
         };
         let enabled = IfConditionToken {
             at: (49, 7),
-            token_type: IfConditionTokenType::Variable,
+            token_type: IfConditionTokenType::Atom(IfConditionAtom::Variable),
         };
         let is_not = IfConditionToken {
             at: (57, 6),
-            token_type: IfConditionTokenType::IsNot,
+            token_type: IfConditionTokenType::Operator(IfConditionOperator::IsNot),
         };
         let falsey = IfConditionToken {
             at: (64, 5),
-            token_type: IfConditionTokenType::Variable,
+            token_type: IfConditionTokenType::Atom(IfConditionAtom::Variable),
         };
         let condition = vec![
             Ok(foobar),
