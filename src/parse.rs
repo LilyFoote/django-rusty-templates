@@ -420,7 +420,6 @@ fn parse_if_binding_power(
             IfCondition::Variable(parser.parse_variable(content, token_at, token.at.0)?)
         }
         IfConditionTokenType::Not => {
-            const NOT_BINDING_POWER: u8 = 8;
             let if_condition = parse_if_binding_power(parser, lexer, NOT_BINDING_POWER, token_at)?;
             IfCondition::Not(Box::new(if_condition))
         }
@@ -465,6 +464,8 @@ fn parse_if_binding_power(
 
     Ok(lhs)
 }
+
+const NOT_BINDING_POWER: u8 = 8;
 
 impl IfConditionOperator {
     fn binding_power(&self) -> u8 {
