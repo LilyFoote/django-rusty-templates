@@ -340,6 +340,17 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_translated_error() {
+        let template = "{% if _('foo' %}";
+        let parts = TagParts { at: (6, 7) };
+        let lexer = IfConditionLexer::new(template.into(), parts);
+        let tokens: Vec<_> = lexer.collect();
+
+        let error = LexerError::IncompleteTranslatedString { at: (6, 7).into() };
+        assert_eq!(tokens, vec![Err(error)]);
+    }
+
+    #[test]
     fn test_lex_and() {
         let template = "{% if and %}";
         let parts = TagParts { at: (6, 3) };
