@@ -148,8 +148,8 @@ def test_render_equal_literal_var(a, b):
     assert rust_template.render({"b": b}) == expected
 
 
-@pytest.mark.parametrize("a", ["foo", "", 1, 0, 1.5, -3.7])
-@pytest.mark.parametrize("b", ["foo", "", 1, 0, 1.5, -3.7])
+@pytest.mark.parametrize("a", ["foo", "", 1, 0, 1.5, -3.7, 10**310, - 10**310])
+@pytest.mark.parametrize("b", ["foo", "", 1, 0, 1.5, -3.7, 10**310, - 10**310])
 def test_render_equal_literal_literal(a, b):
     template = f"{{% if {a!r} == {b!r} %}}truthy{{% else %}}falsey{{% endif %}}"
     django_template = engines["django"].from_string(template)
