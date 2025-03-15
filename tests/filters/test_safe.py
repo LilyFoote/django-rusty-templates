@@ -24,7 +24,7 @@ def test_safe_with_argument():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × safe filter does not take an argument
    ╭────
  1 │ {{ html|safe:invalid }}
@@ -32,6 +32,7 @@ def test_safe_with_argument():
    ·                 ╰── unexpected argument
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_safe_missing_value():

@@ -2,10 +2,12 @@ use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 use unicode_xid::UnicodeXID;
 
+use super::QUOTE_LEN;
+
 const START_TRANSLATE_LEN: usize = 2;
 const END_TRANSLATE_LEN: usize = 1;
 
-#[derive(Error, Debug, Diagnostic, PartialEq, Eq)]
+#[derive(Clone, Error, Debug, Diagnostic, PartialEq, Eq)]
 pub enum LexerError {
     #[error("Expected a complete string literal")]
     IncompleteString {
@@ -34,6 +36,33 @@ pub enum LexerError {
     },
 }
 
+pub fn lex_variable(byte: usize, rest: &str) -> ((usize, usize), usize, &str) {
+    let mut in_text = None;
+    let mut end = 0;
+    for c in rest.chars() {
+        match c {
+            '"' => match in_text {
+                None => in_text = Some('"'),
+                Some('"') => in_text = None,
+                _ => {}
+            },
+            '\'' => match in_text {
+                None => in_text = Some('\''),
+                Some('\'') => in_text = None,
+                _ => {}
+            },
+            _ if in_text.is_some() => {}
+            c if !c.is_xid_continue() && c != '.' && c != '|' && c != ':' && c != '-' => break,
+            _ => {}
+        }
+        end += c.len_utf8();
+    }
+    let at = (byte, end);
+    let rest = &rest[end..];
+    let byte = byte + end;
+    (at, byte, rest)
+}
+
 pub fn lex_text<'t>(
     byte: usize,
     rest: &'t str,
@@ -49,10 +78,16 @@ pub fn lex_text<'t>(
             }
             Some(c) => c,
         };
-        count += 1;
+        count += next.len_utf8();
         if next == '\\' {
-            count += 1;
-            chars.next();
+            let next = match chars.next() {
+                Some(next) => next,
+                None => {
+                    let at = (byte, count);
+                    return Err(LexerError::IncompleteString { at: at.into() });
+                }
+            };
+            count += next.len_utf8();
         } else if next == end {
             let at = (byte, count);
             let rest = &rest[count..];
@@ -144,4 +179,43 @@ pub fn lex_variable_argument(
     let end = content.len();
     let at = (byte, end);
     Ok((at, byte + end, &rest[end..]))
+}
+
+pub fn text_content_at(at: (usize, usize)) -> (usize, usize) {
+    let (start, len) = at;
+    let start = start + QUOTE_LEN;
+    let len = len - 2 * QUOTE_LEN;
+    (start, len)
+}
+
+pub fn translated_text_content_at(at: (usize, usize)) -> (usize, usize) {
+    let (start, len) = at;
+    let start = start + START_TRANSLATE_LEN + QUOTE_LEN;
+    let len = len - START_TRANSLATE_LEN - END_TRANSLATE_LEN - 2 * QUOTE_LEN;
+    (start, len)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lex_text_non_ascii() {
+        let template = "'N\u{ec655}'";
+        let mut chars = template.chars();
+        chars.next();
+        let (at, byte, rest) = lex_text(1, template, &mut chars, '\'').unwrap();
+        assert_eq!(at, (1, 7));
+        assert_eq!(byte, 8);
+        assert_eq!(rest, "");
+    }
+
+    #[test]
+    fn test_lex_argument_non_ascii() {
+        let template = "ZJ5G4YXZJUH6|default:\"#`´କ¯\"";
+        let (at, byte, rest) = lex_variable(0, template);
+        assert_eq!(at, (0, 32));
+        assert_eq!(byte, 32);
+        assert_eq!(rest, "");
+    }
 }

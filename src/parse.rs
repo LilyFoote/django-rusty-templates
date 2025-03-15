@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::iter::Peekable;
 
 use either::Either;
 use miette::{Diagnostic, SourceSpan};
@@ -17,15 +18,19 @@ use crate::filters::FilterType;
 use crate::filters::LowerFilter;
 use crate::filters::SafeFilter;
 use crate::filters::SlugifyFilter;
-use crate::lex::START_TAG_LEN;
-use crate::lex::autoescape::{AutoescapeEnabled, AutoescapeError, lex_autoescape_argument};
+use crate::lex::autoescape::{lex_autoescape_argument, AutoescapeEnabled, AutoescapeError};
+use crate::lex::common::LexerError;
 use crate::lex::core::{Lexer, TokenType};
+use crate::lex::ifcondition::{
+    IfConditionAtom, IfConditionLexer, IfConditionOperator, IfConditionTokenType,
+};
 use crate::lex::load::{LoadLexer, LoadToken};
-use crate::lex::tag::{TagLexerError, TagParts, lex_tag};
+use crate::lex::tag::{lex_tag, TagLexerError, TagParts};
 use crate::lex::url::{UrlLexer, UrlLexerError, UrlToken, UrlTokenType};
 use crate::lex::variable::{
-    Argument as ArgumentToken, ArgumentType as ArgumentTokenType, VariableLexerError, lex_variable,
+    lex_variable, Argument as ArgumentToken, ArgumentType as ArgumentTokenType, VariableLexerError,
 };
+use crate::lex::START_TAG_LEN;
 use crate::types::Argument;
 use crate::types::ArgumentType;
 use crate::types::Text;
@@ -246,19 +251,23 @@ impl PyEq for Filter {
     }
 }
 
+fn parse_numeric(content: &str, at: (usize, usize)) -> Result<TagElement, ParseError> {
+    match content.parse::<BigInt>() {
+        Ok(n) => Ok(TagElement::Int(n)),
+        Err(_) => match content.parse::<f64>() {
+            Ok(f) => Ok(TagElement::Float(f)),
+            Err(_) => Err(ParseError::InvalidNumber { at: at.into() }),
+        },
+    }
+}
+
 impl UrlToken {
     fn parse(&self, parser: &Parser) -> Result<TagElement, ParseError> {
         let content_at = self.content_at();
         let (start, _len) = content_at;
         let content = parser.template.content(content_at);
         match self.token_type {
-            UrlTokenType::Numeric => match content.parse::<BigInt>() {
-                Ok(n) => Ok(TagElement::Int(n)),
-                Err(_) => match content.parse::<f64>() {
-                    Ok(f) => Ok(TagElement::Float(f)),
-                    Err(_) => Err(ParseError::InvalidNumber { at: self.at.into() }),
-                },
-            },
+            UrlTokenType::Numeric => parse_numeric(content, self.at),
             UrlTokenType::Text => Ok(TagElement::Text(Text::new(content_at))),
             UrlTokenType::TranslatedText => Ok(TagElement::TranslatedText(Text::new(content_at))),
             UrlTokenType::Variable => parser.parse_variable(content, content_at, start),
@@ -296,10 +305,215 @@ impl PyEq for Url {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum IfCondition {
+    Variable(TagElement),
+    And(Box<(IfCondition, IfCondition)>),
+    Or(Box<(IfCondition, IfCondition)>),
+    Not(Box<IfCondition>),
+    Equal(Box<(IfCondition, IfCondition)>),
+    NotEqual(Box<(IfCondition, IfCondition)>),
+    LessThan(Box<(IfCondition, IfCondition)>),
+    GreaterThan(Box<(IfCondition, IfCondition)>),
+    LessThanEqual(Box<(IfCondition, IfCondition)>),
+    GreaterThanEqual(Box<(IfCondition, IfCondition)>),
+    In(Box<(IfCondition, IfCondition)>),
+    NotIn(Box<(IfCondition, IfCondition)>),
+    Is(Box<(IfCondition, IfCondition)>),
+    IsNot(Box<(IfCondition, IfCondition)>),
+}
+
+impl CloneRef for IfCondition {
+    fn clone_ref(&self, py: Python<'_>) -> Self {
+        match self {
+            Self::Variable(v) => Self::Variable(v.clone_ref(py)),
+            Self::And(v) => Self::And(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
+            Self::Or(v) => Self::Or(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
+            Self::Not(c) => Self::Not(Box::new(c.clone_ref(py))),
+            Self::Equal(v) => Self::Equal(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
+            Self::NotEqual(v) => Self::NotEqual(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
+            Self::LessThan(v) => Self::LessThan(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
+            Self::GreaterThan(v) => {
+                Self::GreaterThan(Box::new((v.0.clone_ref(py), v.1.clone_ref(py))))
+            }
+            Self::LessThanEqual(v) => {
+                Self::LessThanEqual(Box::new((v.0.clone_ref(py), v.1.clone_ref(py))))
+            }
+            Self::GreaterThanEqual(v) => {
+                Self::GreaterThanEqual(Box::new((v.0.clone_ref(py), v.1.clone_ref(py))))
+            }
+            Self::In(v) => Self::In(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
+            Self::NotIn(v) => Self::NotIn(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
+            Self::Is(v) => Self::Is(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
+            Self::IsNot(v) => Self::IsNot(Box::new((v.0.clone_ref(py), v.1.clone_ref(py)))),
+        }
+    }
+}
+
+#[cfg(test)]
+impl PyEq for IfCondition {
+    fn py_eq(&self, other: &Self, py: Python<'_>) -> bool {
+        match (self, other) {
+            (Self::Variable(v1), Self::Variable(v2)) => v1.py_eq(v2, py),
+            (Self::And(v1), Self::And(v2)) => v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py),
+            (Self::Or(v1), Self::Or(v2)) => v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py),
+            (Self::Not(v1), Self::Not(v2)) => v1.py_eq(v2, py),
+            (Self::Equal(v1), Self::Equal(v2)) => v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py),
+            (Self::NotEqual(v1), Self::NotEqual(v2)) => {
+                v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py)
+            }
+            (Self::LessThan(v1), Self::LessThan(v2)) => {
+                v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py)
+            }
+            (Self::LessThanEqual(v1), Self::LessThanEqual(v2)) => {
+                v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py)
+            }
+            (Self::GreaterThan(v1), Self::GreaterThan(v2)) => {
+                v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py)
+            }
+            (Self::GreaterThanEqual(v1), Self::GreaterThanEqual(v2)) => {
+                v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py)
+            }
+            (Self::In(v1), Self::In(v2)) => v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py),
+            (Self::NotIn(v1), Self::NotIn(v2)) => v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py),
+            (Self::Is(v1), Self::Is(v2)) => v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py),
+            (Self::IsNot(v1), Self::IsNot(v2)) => v1.0.py_eq(&v2.0, py) && v1.1.py_eq(&v2.1, py),
+            _ => false,
+        }
+    }
+}
+
+fn parse_if_condition(
+    parser: &mut Parser,
+    parts: TagParts,
+    at: (usize, usize),
+) -> Result<IfCondition, ParseError> {
+    let mut lexer = IfConditionLexer::new(parser.template, parts).peekable();
+    if lexer.peek().is_none() {
+        return Err(ParseError::MissingBooleanExpression { at: at.into() });
+    }
+    parse_if_binding_power(parser, &mut lexer, 0, at)
+}
+
+fn parse_if_binding_power(
+    parser: &mut Parser,
+    lexer: &mut Peekable<IfConditionLexer>,
+    min_binding_power: u8,
+    at: (usize, usize),
+) -> Result<IfCondition, ParseError> {
+    let token = match lexer.next().transpose()? {
+        Some(token) => token,
+        None => return Err(ParseError::UnexpectedEndExpression { at: at.into() }),
+    };
+    let content = parser.template.content(token.at);
+    let token_at = token.content_at();
+    let mut lhs = match token.token_type {
+        IfConditionTokenType::Atom(IfConditionAtom::Numeric) => {
+            IfCondition::Variable(parse_numeric(content, token_at)?)
+        }
+        IfConditionTokenType::Atom(IfConditionAtom::Text) => {
+            IfCondition::Variable(TagElement::Text(Text::new(token_at)))
+        }
+        IfConditionTokenType::Atom(IfConditionAtom::TranslatedText) => {
+            IfCondition::Variable(TagElement::TranslatedText(Text::new(token_at)))
+        }
+        IfConditionTokenType::Atom(IfConditionAtom::Variable) => {
+            IfCondition::Variable(parser.parse_variable(content, token_at, token.at.0)?)
+        }
+        IfConditionTokenType::Not => {
+            let if_condition = parse_if_binding_power(parser, lexer, NOT_BINDING_POWER, token_at)?;
+            IfCondition::Not(Box::new(if_condition))
+        }
+        _ => {
+            return Err(ParseError::InvalidIfPosition {
+                at: token.at.into(),
+                token: content.to_string(),
+            })
+        }
+    };
+
+    loop {
+        let token = match lexer.peek() {
+            None => break,
+            Some(Err(e)) => return Err(e.clone().into()),
+            Some(Ok(token)) => token,
+        };
+        let operator = match &token.token_type {
+            IfConditionTokenType::Atom(_) | IfConditionTokenType::Not => {
+                return Err(ParseError::UnusedExpression {
+                    at: token.at.into(),
+                    expression: parser.template.content(token.at).to_string(),
+                })
+            }
+            IfConditionTokenType::Operator(operator) => *operator,
+        };
+        let binding_power = operator.binding_power();
+        if binding_power <= min_binding_power {
+            break;
+        }
+
+        // We can get the next token properly now, since we have the right binding
+        // power and don't need to `break`.
+        let token = lexer
+            .next()
+            .expect("already `break`ed in match peek()")
+            .expect("already `return Err` in match peek()");
+        let rhs = parse_if_binding_power(parser, lexer, binding_power, token.at)?;
+
+        lhs = operator.build_condition(lhs, rhs)
+    }
+
+    Ok(lhs)
+}
+
+const NOT_BINDING_POWER: u8 = 8;
+
+impl IfConditionOperator {
+    fn binding_power(&self) -> u8 {
+        match self {
+            Self::Or => 6,
+            Self::And => 7,
+            Self::In => 9,
+            Self::NotIn => 9,
+            Self::Is => 10,
+            Self::IsNot => 10,
+            Self::Equal => 10,
+            Self::NotEqual => 10,
+            Self::GreaterThan => 10,
+            Self::GreaterThanEqual => 10,
+            Self::LessThan => 10,
+            Self::LessThanEqual => 10,
+        }
+    }
+
+    fn build_condition(&self, lhs: IfCondition, rhs: IfCondition) -> IfCondition {
+        let inner = Box::new((lhs, rhs));
+        match self {
+            Self::And => IfCondition::And(inner),
+            Self::Or => IfCondition::Or(inner),
+            Self::In => IfCondition::In(inner),
+            Self::NotIn => IfCondition::NotIn(inner),
+            Self::Is => IfCondition::Is(inner),
+            Self::IsNot => IfCondition::IsNot(inner),
+            Self::Equal => IfCondition::Equal(inner),
+            Self::NotEqual => IfCondition::NotEqual(inner),
+            Self::GreaterThan => IfCondition::GreaterThan(inner),
+            Self::GreaterThanEqual => IfCondition::GreaterThanEqual(inner),
+            Self::LessThan => IfCondition::LessThan(inner),
+            Self::LessThanEqual => IfCondition::LessThanEqual(inner),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum Tag {
     Autoescape {
         enabled: AutoescapeEnabled,
         nodes: Vec<TokenTree>,
+    },
+    If {
+        condition: IfCondition,
+        truthy: Vec<TokenTree>,
+        falsey: Option<Vec<TokenTree>>,
     },
     Load,
     Url(Url),
@@ -311,6 +525,18 @@ impl CloneRef for Tag {
             Self::Autoescape { enabled, nodes } => Self::Autoescape {
                 enabled: enabled.clone(),
                 nodes: nodes.clone_ref(py),
+            },
+            Self::If {
+                condition,
+                truthy,
+                falsey,
+            } => Self::If {
+                condition: condition.clone_ref(py),
+                truthy: truthy.clone_ref(py),
+                falsey: match falsey {
+                    None => None,
+                    Some(falsey) => Some(falsey.clone_ref(py)),
+                },
             },
             Self::Load => Self::Load,
             Self::Url(url) => Self::Url(url.clone_ref(py)),
@@ -332,6 +558,18 @@ impl PyEq for Tag {
                     nodes: d,
                 },
             ) => a == c && b.py_eq(d, py),
+            (
+                Self::If {
+                    condition: c1,
+                    truthy: t1,
+                    falsey: f1,
+                },
+                Self::If {
+                    condition: c2,
+                    truthy: t2,
+                    falsey: f2,
+                },
+            ) => c1.py_eq(c2, py) && t1.py_eq(t2, py) && f1.py_eq(f2, py),
             (Self::Load, Self::Load) => true,
             (Self::Url(a), Self::Url(b)) => a.py_eq(b, py),
             _ => false,
@@ -342,6 +580,9 @@ impl PyEq for Tag {
 #[derive(PartialEq, Eq)]
 enum EndTagType {
     Autoescape,
+    Elif,
+    Else,
+    EndIf,
     Verbatim,
 }
 
@@ -349,6 +590,9 @@ impl EndTagType {
     fn as_str(&self) -> &'static str {
         match self {
             EndTagType::Autoescape => "endautoescape",
+            EndTagType::Elif => "elif",
+            EndTagType::Else => "else",
+            EndTagType::EndIf => "endif",
             EndTagType::Verbatim => "endverbatim",
         }
     }
@@ -358,6 +602,7 @@ impl EndTagType {
 struct EndTag {
     at: (usize, usize),
     end: EndTagType,
+    parts: TagParts,
 }
 
 impl EndTag {
@@ -439,6 +684,9 @@ pub enum ParseError {
     BlockError(#[from] TagLexerError),
     #[error(transparent)]
     #[diagnostic(transparent)]
+    LexerError(#[from] LexerError),
+    #[error(transparent)]
+    #[diagnostic(transparent)]
     UrlLexerError(#[from] UrlLexerError),
     #[error(transparent)]
     #[diagnostic(transparent)]
@@ -449,8 +697,19 @@ pub enum ParseError {
         #[label("here")]
         at: SourceSpan,
     },
+    #[error("Not expecting '{token}' in this position")]
+    InvalidIfPosition {
+        token: String,
+        #[label("here")]
+        at: SourceSpan,
+    },
     #[error("Invalid numeric literal")]
     InvalidNumber {
+        #[label("here")]
+        at: SourceSpan,
+    },
+    #[error("Missing boolean expression")]
+    MissingBooleanExpression {
         #[label("here")]
         at: SourceSpan,
     },
@@ -494,10 +753,21 @@ pub enum ParseError {
         #[label("unexpected argument")]
         at: SourceSpan,
     },
+    #[error("Unexpected end of expression")]
+    UnexpectedEndExpression {
+        #[label("after this")]
+        at: SourceSpan,
+    },
     #[error("Unexpected tag {unexpected}")]
     UnexpectedEndTag {
         unexpected: &'static str,
         #[label("unexpected tag")]
+        at: SourceSpan,
+    },
+    #[error("Unused expression '{expression}' in if tag")]
+    UnusedExpression {
+        expression: String,
+        #[label("here")]
         at: SourceSpan,
     },
     #[error("'url' takes at least one argument, a URL pattern name")]
@@ -508,7 +778,7 @@ pub enum ParseError {
     #[error("Unexpected tag {unexpected}, expected {expected}")]
     WrongEndTag {
         unexpected: &'static str,
-        expected: &'static str,
+        expected: String,
         #[label("unexpected tag")]
         at: SourceSpan,
         #[label("start tag")]
@@ -638,10 +908,10 @@ impl<'t, 'l, 'py> Parser<'t, 'l, 'py> {
 
     fn parse_until(
         &mut self,
-        until: EndTagType,
+        until: Vec<EndTagType>,
         start: &'static str,
         start_at: (usize, usize),
-    ) -> Result<Vec<TokenTree>, PyParseError> {
+    ) -> Result<(Vec<TokenTree>, EndTag), PyParseError> {
         let mut nodes = Vec::new();
         while let Some(token) = self.lexer.next() {
             let node = match token.token_type {
@@ -657,11 +927,15 @@ impl<'t, 'l, 'py> Parser<'t, 'l, 'py> {
                 TokenType::Tag => match self.parse_tag(token.content(self.template), token.at)? {
                     Either::Left(token_tree) => token_tree,
                     Either::Right(end_tag) => {
-                        if end_tag.end == until {
-                            return Ok(nodes);
+                        if until.contains(&end_tag.end) {
+                            return Ok((nodes, end_tag));
                         } else {
                             return Err(ParseError::WrongEndTag {
-                                expected: until.as_str(),
+                                expected: until
+                                    .iter()
+                                    .map(|u| u.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
                                 unexpected: end_tag.as_str(),
                                 at: end_tag.at.into(),
                                 start_at: start_at.into(),
@@ -675,7 +949,11 @@ impl<'t, 'l, 'py> Parser<'t, 'l, 'py> {
         }
         Err(ParseError::MissingEndTag {
             start,
-            expected: [until.as_str()].join(", "),
+            expected: until
+                .iter()
+                .map(|u| u.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
             at: start_at.into(),
         }
         .into())
@@ -727,10 +1005,28 @@ impl<'t, 'l, 'py> Parser<'t, 'l, 'py> {
             "endautoescape" => Either::Right(EndTag {
                 end: EndTagType::Autoescape,
                 at,
+                parts,
             }),
             "endverbatim" => Either::Right(EndTag {
                 end: EndTagType::Verbatim,
                 at,
+                parts,
+            }),
+            "if" => Either::Left(self.parse_if(at, parts, "if")?),
+            "elif" => Either::Right(EndTag {
+                end: EndTagType::Elif,
+                at,
+                parts,
+            }),
+            "else" => Either::Right(EndTag {
+                end: EndTagType::Else,
+                at,
+                parts,
+            }),
+            "endif" => Either::Right(EndTag {
+                end: EndTagType::EndIf,
+                at,
+                parts,
             }),
             _ => todo!(),
         })
@@ -859,10 +1155,50 @@ impl<'t, 'l, 'py> Parser<'t, 'l, 'py> {
         parts: TagParts,
     ) -> Result<TokenTree, PyParseError> {
         let token = lex_autoescape_argument(self.template, parts).map_err(ParseError::from)?;
-        let nodes = self.parse_until(EndTagType::Autoescape, "autoescape", at)?;
+        let (nodes, _) = self.parse_until(vec![EndTagType::Autoescape], "autoescape", at)?;
         Ok(TokenTree::Tag(Tag::Autoescape {
             enabled: token.enabled,
             nodes,
+        }))
+    }
+
+    fn parse_if(
+        &mut self,
+        at: (usize, usize),
+        parts: TagParts,
+        start: &'static str,
+    ) -> Result<TokenTree, PyParseError> {
+        let condition = parse_if_condition(self, parts, at)?;
+        let (nodes, end_tag) = self.parse_until(
+            vec![EndTagType::Elif, EndTagType::Else, EndTagType::EndIf],
+            start,
+            at,
+        )?;
+        let falsey = match end_tag {
+            EndTag {
+                at,
+                end: EndTagType::Elif,
+                parts,
+            } => Some(vec![self.parse_if(at, parts, "elif")?]),
+            EndTag {
+                at,
+                end: EndTagType::Else,
+                parts: _parts,
+            } => {
+                let (nodes, _) = self.parse_until(vec![EndTagType::EndIf], "else", at)?;
+                Some(nodes)
+            }
+            EndTag {
+                at: _end_at,
+                end: EndTagType::EndIf,
+                parts: _parts,
+            } => None,
+            _ => unreachable!(),
+        };
+        Ok(TokenTree::Tag(Tag::If {
+            condition,
+            truthy: nodes,
+            falsey,
         }))
     }
 }
@@ -1783,6 +2119,111 @@ mod tests {
             let cloned = autoescape.clone_ref(py);
             assert_eq!(autoescape, cloned);
             assert!(autoescape.py_eq(&cloned, py));
+
+            let variable = TagElement::Variable(Variable { at: (7, 14) });
+            let var = IfCondition::Variable(variable);
+            let var_tag = Tag::If {
+                condition: var,
+                truthy: vec![TokenTree::Text(Text { at: (0, 3) })],
+                falsey: None,
+            };
+            let cloned = var_tag.clone_ref(py);
+            assert_eq!(var_tag, cloned);
+            assert!(var_tag.py_eq(&cloned, py));
+
+            let variable = TagElement::Variable(Variable { at: (7, 14) });
+            let var = IfCondition::Variable(variable);
+            let var_tag = Tag::If {
+                condition: var,
+                truthy: vec![TokenTree::Text(Text { at: (0, 3) })],
+                falsey: Some(vec![TokenTree::Text(Text { at: (10, 20) })]),
+            };
+            let cloned = var_tag.clone_ref(py);
+            assert_eq!(var_tag, cloned);
+            assert!(var_tag.py_eq(&cloned, py));
+        })
+    }
+
+    #[test]
+    fn test_ifcondition_clone_ref() {
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let variable = TagElement::Variable(Variable { at: (7, 14) });
+            let var = IfCondition::Variable(variable);
+            let cloned = var.clone_ref(py);
+            assert_eq!(var, cloned);
+            assert!(var.py_eq(&cloned, py));
+
+            let not = IfCondition::Not(Box::new(var.clone_ref(py)));
+            let cloned = not.clone_ref(py);
+            assert_eq!(not, cloned);
+            assert!(not.py_eq(&cloned, py));
+
+            let and = IfCondition::And(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = and.clone_ref(py);
+            assert_eq!(and, cloned);
+            assert!(and.py_eq(&cloned, py));
+
+            let or = IfCondition::Or(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = or.clone_ref(py);
+            assert_eq!(or, cloned);
+            assert!(or.py_eq(&cloned, py));
+
+            let equal = IfCondition::Equal(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = equal.clone_ref(py);
+            assert_eq!(equal, cloned);
+            assert!(equal.py_eq(&cloned, py));
+
+            let not_equal = IfCondition::NotEqual(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = not_equal.clone_ref(py);
+            assert_eq!(not_equal, cloned);
+            assert!(not_equal.py_eq(&cloned, py));
+
+            let less_than = IfCondition::LessThan(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = less_than.clone_ref(py);
+            assert_eq!(less_than, cloned);
+            assert!(less_than.py_eq(&cloned, py));
+
+            let greater_than =
+                IfCondition::GreaterThan(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = greater_than.clone_ref(py);
+            assert_eq!(greater_than, cloned);
+            assert!(greater_than.py_eq(&cloned, py));
+
+            let less_equal =
+                IfCondition::LessThanEqual(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = less_equal.clone_ref(py);
+            assert_eq!(less_equal, cloned);
+            assert!(less_equal.py_eq(&cloned, py));
+
+            let greater_equal =
+                IfCondition::GreaterThanEqual(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = greater_equal.clone_ref(py);
+            assert_eq!(greater_equal, cloned);
+            assert!(greater_equal.py_eq(&cloned, py));
+
+            let in_ = IfCondition::In(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = in_.clone_ref(py);
+            assert_eq!(in_, cloned);
+            assert!(in_.py_eq(&cloned, py));
+
+            let not_in = IfCondition::NotIn(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = not_in.clone_ref(py);
+            assert_eq!(not_in, cloned);
+            assert!(not_in.py_eq(&cloned, py));
+
+            let is = IfCondition::Is(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = is.clone_ref(py);
+            assert_eq!(is, cloned);
+            assert!(is.py_eq(&cloned, py));
+
+            let is_not = IfCondition::IsNot(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = is_not.clone_ref(py);
+            assert_eq!(is_not, cloned);
+            assert!(is_not.py_eq(&cloned, py));
+
+            assert!(!and.py_eq(&or, py));
         })
     }
 }

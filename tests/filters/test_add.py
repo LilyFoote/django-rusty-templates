@@ -30,19 +30,22 @@ def test_add_no_argument():
     with pytest.raises(VariableDoesNotExist) as exc_info:
         django_template.render({"foo": 1})
 
-    assert str(exc_info.value) == "Failed lookup for key [bar] in [{'True': True, 'False': False, 'None': None}, {'foo': 1}]"
+    expected = "Failed lookup for key [bar] in [{'True': True, 'False': False, 'None': None}, {'foo': 1}]"
+    assert str(exc_info.value) == expected
 
     with pytest.raises(VariableDoesNotExist) as exc_info:
         rust_template.render({"foo": 1})
 
-    assert str(exc_info.value) == """\
-  × Failed lookup for key [bar] in {"foo": 1}
+    expected = """\
+  × Failed lookup for key [bar] in {"False": False, "None": None, "True":
+  │ True, "foo": 1}
    ╭────
  1 │ {{ foo|add:bar }}
    ·            ─┬─
    ·             ╰── key
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_add_integer_strings():
@@ -128,7 +131,7 @@ def test_add_missing_argument():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × Expected an argument
    ╭────
  1 │ {{ foo|add }}
@@ -136,6 +139,7 @@ def test_add_missing_argument():
    ·         ╰── here
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_add_safe():

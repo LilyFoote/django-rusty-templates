@@ -161,6 +161,20 @@ where
 }
 
 #[cfg(test)]
+impl<O> PyEq for Option<O>
+where
+    O: PyEq,
+{
+    fn py_eq(&self, other: &Self, py: Python<'_>) -> bool {
+        match (self, other) {
+            (None, None) => true,
+            (Some(l), Some(r)) => l.py_eq(r, py),
+            _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -223,6 +237,20 @@ mod tests {
                 ],
                 py
             ));
+        })
+    }
+
+    #[test]
+    fn test_py_eq_option() {
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let element = TagElement::Int(1.into());
+            let cloned = Some(element.clone_ref(py));
+            let element = Some(element);
+            assert!(element.py_eq(&cloned, py));
+            assert!(None::<TagElement>.py_eq(&None, py));
+            assert!(!element.py_eq(&None, py));
         })
     }
 }

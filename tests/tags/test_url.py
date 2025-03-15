@@ -158,7 +158,7 @@ def test_render_url_view_name_error():
     with pytest.raises(VariableDoesNotExist) as rust_error:
         rust_template.render({"foo": {"bar": 1}})
 
-    assert str(rust_error.value) == """\
+    expected = """\
   × Failed lookup for key [1b] in 1
    ╭────
  1 │ {% url foo.bar.1b.baz %}
@@ -167,6 +167,7 @@ def test_render_url_view_name_error():
    ·           ╰── 1
    ╰────
 """
+    assert str(rust_error.value) == expected
 
 
 def test_render_url_invalid_keyword():
@@ -181,7 +182,7 @@ def test_render_url_invalid_keyword():
     with pytest.raises(TemplateSyntaxError) as rust_error:
         engines["rusty"].from_string(template)
 
-    assert str(rust_error.value) == """\
+    expected = """\
   × Incomplete keyword argument
    ╭────
  1 │ {% url foo= %}
@@ -189,6 +190,7 @@ def test_render_url_invalid_keyword():
    ·          ╰── here
    ╰────
 """
+    assert str(rust_error.value) == expected
 
 
 def test_render_url_invalid_dotted_lookup_keyword():
@@ -203,7 +205,7 @@ def test_render_url_invalid_dotted_lookup_keyword():
     with pytest.raises(TemplateSyntaxError) as rust_error:
         engines["rusty"].from_string(template)
 
-    assert str(rust_error.value) == """\
+    expected = """\
   × Could not parse the remainder
    ╭────
  1 │ {% url foo.bar= %}
@@ -211,6 +213,7 @@ def test_render_url_invalid_dotted_lookup_keyword():
    ·               ╰── here
    ╰────
 """
+    assert str(rust_error.value) == expected
 
 
 def test_render_url_dotted_lookup_keyword():
@@ -225,7 +228,7 @@ def test_render_url_dotted_lookup_keyword():
     with pytest.raises(TemplateSyntaxError) as rust_error:
         engines["rusty"].from_string(template)
 
-    assert str(rust_error.value) == """\
+    expected = """\
   × Could not parse the remainder
    ╭────
  1 │ {% url foo.bar='lily' %}
@@ -233,6 +236,7 @@ def test_render_url_dotted_lookup_keyword():
    ·                  ╰── here
    ╰────
 """
+    assert str(rust_error.value) == expected
 
 
 def test_render_url_dotted_lookup_filter_with_equal_char():

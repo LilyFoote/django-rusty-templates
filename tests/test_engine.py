@@ -15,7 +15,9 @@ def test_import_libraries_import_error():
     assert str(exc_info.value) == expected
 
     with pytest.raises(InvalidTemplateLibrary) as exc_info:
-        RustyTemplates({"OPTIONS": params, "NAME": "rust", "DIRS": [], "APP_DIRS": False})
+        RustyTemplates(
+            {"OPTIONS": params, "NAME": "rust", "DIRS": [], "APP_DIRS": False}
+        )
 
     assert str(exc_info.value) == expected
 
@@ -31,6 +33,8 @@ def test_import_libraries_no_register():
 
     expected = "Module 'tests' does not have a variable named 'register'"
     with pytest.raises(InvalidTemplateLibrary) as exc_info:
-        RustyTemplates({"OPTIONS": params, "NAME": "rust", "DIRS": [], "APP_DIRS": False})
+        RustyTemplates(
+            {"OPTIONS": params, "NAME": "rust", "DIRS": [], "APP_DIRS": False}
+        )
 
     assert str(exc_info.value) == expected
