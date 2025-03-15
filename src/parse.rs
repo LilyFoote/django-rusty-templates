@@ -2119,6 +2119,28 @@ mod tests {
             let cloned = autoescape.clone_ref(py);
             assert_eq!(autoescape, cloned);
             assert!(autoescape.py_eq(&cloned, py));
+
+            let variable = TagElement::Variable(Variable { at: (7, 14) });
+            let var = IfCondition::Variable(variable);
+            let var_tag = Tag::If {
+                condition: var,
+                truthy: vec![TokenTree::Text(Text { at: (0, 3) })],
+                falsey: None,
+            };
+            let cloned = var_tag.clone_ref(py);
+            assert_eq!(var_tag, cloned);
+            assert!(var_tag.py_eq(&cloned, py));
+
+            let variable = TagElement::Variable(Variable { at: (7, 14) });
+            let var = IfCondition::Variable(variable);
+            let var_tag = Tag::If {
+                condition: var,
+                truthy: vec![TokenTree::Text(Text { at: (0, 3) })],
+                falsey: Some(vec![TokenTree::Text(Text { at: (10, 20) })]),
+            };
+            let cloned = var_tag.clone_ref(py);
+            assert_eq!(var_tag, cloned);
+            assert!(var_tag.py_eq(&cloned, py));
         })
     }
 
