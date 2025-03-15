@@ -128,18 +128,20 @@ impl PyCmp<Content<'_, '_>> for Content<'_, '_> {
             (Self::HtmlSafe(obj), Content::Py(other)) => other.eq(obj).unwrap_or(false),
             (Self::Float(obj), Content::Float(other)) => obj == other,
             (Self::Int(obj), Content::Int(other)) => obj == other,
-            (Self::Float(obj), Content::Int(other)) => match other.to_f64() {
-                None => false,
-                Some(f64::INFINITY) => false,
-                Some(f64::NEG_INFINITY) => false,
-                Some(other) => *obj == other,
-            },
-            (Self::Int(obj), Content::Float(other)) => match obj.to_f64() {
-                None => false,
-                Some(f64::INFINITY) => false,
-                Some(f64::NEG_INFINITY) => false,
-                Some(obj) => obj == *other,
-            },
+            (Self::Float(obj), Content::Int(other)) => {
+                match other.to_f64().expect("BigInt to f64 is always possible") {
+                    f64::INFINITY => false,
+                    f64::NEG_INFINITY => false,
+                    other => *obj == other,
+                }
+            }
+            (Self::Int(obj), Content::Float(other)) => {
+                match obj.to_f64().expect("BigInt to f64 is always possible") {
+                    f64::INFINITY => false,
+                    f64::NEG_INFINITY => false,
+                    obj => obj == *other,
+                }
+            }
             (Self::String(obj), Content::String(other)) => obj == other,
             (Self::HtmlSafe(obj), Content::HtmlSafe(other)) => obj == other,
             (Self::String(obj), Content::HtmlSafe(other)) => obj == other,
@@ -161,18 +163,20 @@ impl PyCmp<Content<'_, '_>> for Content<'_, '_> {
             (Self::HtmlSafe(obj), Content::Py(other)) => other.gt(obj).unwrap_or(false),
             (Self::Float(obj), Content::Float(other)) => obj < other,
             (Self::Int(obj), Content::Int(other)) => obj < other,
-            (Self::Float(obj), Content::Int(other)) => match other.to_f64() {
-                None => false,
-                Some(f64::INFINITY) => obj.is_finite() || *obj == f64::NEG_INFINITY,
-                Some(f64::NEG_INFINITY) => *obj == f64::NEG_INFINITY,
-                Some(other) => *obj < other,
-            },
-            (Self::Int(obj), Content::Float(other)) => match obj.to_f64() {
-                None => false,
-                Some(f64::INFINITY) => *other == f64::INFINITY,
-                Some(f64::NEG_INFINITY) => other.is_finite() || *other == f64::INFINITY,
-                Some(obj) => obj < *other,
-            },
+            (Self::Float(obj), Content::Int(other)) => {
+                match other.to_f64().expect("BigInt to f64 is always possible") {
+                    f64::INFINITY => obj.is_finite() || *obj == f64::NEG_INFINITY,
+                    f64::NEG_INFINITY => *obj == f64::NEG_INFINITY,
+                    other => *obj < other,
+                }
+            }
+            (Self::Int(obj), Content::Float(other)) => {
+                match obj.to_f64().expect("BigInt to f64 is always possible") {
+                    f64::INFINITY => *other == f64::INFINITY,
+                    f64::NEG_INFINITY => other.is_finite() || *other == f64::INFINITY,
+                    obj => obj < *other,
+                }
+            }
             (Self::String(obj), Content::String(other)) => obj < other,
             (Self::HtmlSafe(obj), Content::HtmlSafe(other)) => obj < other,
             (Self::String(obj), Content::HtmlSafe(other)) => obj < other,
@@ -194,18 +198,20 @@ impl PyCmp<Content<'_, '_>> for Content<'_, '_> {
             (Self::HtmlSafe(obj), Content::Py(other)) => other.lt(obj).unwrap_or(false),
             (Self::Float(obj), Content::Float(other)) => obj > other,
             (Self::Int(obj), Content::Int(other)) => obj > other,
-            (Self::Float(obj), Content::Int(other)) => match other.to_f64() {
-                None => false,
-                Some(f64::INFINITY) => *obj == f64::INFINITY,
-                Some(f64::NEG_INFINITY) => obj.is_finite() || *obj == f64::INFINITY,
-                Some(other) => *obj > other,
-            },
-            (Self::Int(obj), Content::Float(other)) => match obj.to_f64() {
-                None => false,
-                Some(f64::INFINITY) => other.is_finite() || *other == f64::NEG_INFINITY,
-                Some(f64::NEG_INFINITY) => *other == f64::NEG_INFINITY,
-                Some(obj) => obj > *other,
-            },
+            (Self::Float(obj), Content::Int(other)) => {
+                match other.to_f64().expect("BigInt to f64 is always possible") {
+                    f64::INFINITY => *obj == f64::INFINITY,
+                    f64::NEG_INFINITY => obj.is_finite() || *obj == f64::INFINITY,
+                    other => *obj > other,
+                }
+            }
+            (Self::Int(obj), Content::Float(other)) => {
+                match obj.to_f64().expect("BigInt to f64 is always possible") {
+                    f64::INFINITY => other.is_finite() || *other == f64::NEG_INFINITY,
+                    f64::NEG_INFINITY => *other == f64::NEG_INFINITY,
+                    obj => obj > *other,
+                }
+            }
             (Self::String(obj), Content::String(other)) => obj > other,
             (Self::HtmlSafe(obj), Content::HtmlSafe(other)) => obj > other,
             (Self::String(obj), Content::HtmlSafe(other)) => obj > other,
@@ -227,18 +233,20 @@ impl PyCmp<Content<'_, '_>> for Content<'_, '_> {
             (Self::HtmlSafe(obj), Content::Py(other)) => other.ge(obj).unwrap_or(false),
             (Self::Float(obj), Content::Float(other)) => obj <= other,
             (Self::Int(obj), Content::Int(other)) => obj <= other,
-            (Self::Float(obj), Content::Int(other)) => match other.to_f64() {
-                None => false,
-                Some(f64::INFINITY) => obj.is_finite() || *obj == f64::NEG_INFINITY,
-                Some(f64::NEG_INFINITY) => *obj == f64::NEG_INFINITY,
-                Some(other) => *obj <= other,
-            },
-            (Self::Int(obj), Content::Float(other)) => match obj.to_f64() {
-                None => false,
-                Some(f64::INFINITY) => *other == f64::INFINITY,
-                Some(f64::NEG_INFINITY) => other.is_finite() || *other == f64::INFINITY,
-                Some(obj) => obj <= *other,
-            },
+            (Self::Float(obj), Content::Int(other)) => {
+                match other.to_f64().expect("BigInt to f64 is always possible") {
+                    f64::INFINITY => obj.is_finite() || *obj == f64::NEG_INFINITY,
+                    f64::NEG_INFINITY => *obj == f64::NEG_INFINITY,
+                    other => *obj <= other,
+                }
+            }
+            (Self::Int(obj), Content::Float(other)) => {
+                match obj.to_f64().expect("BigInt to f64 is always possible") {
+                    f64::INFINITY => *other == f64::INFINITY,
+                    f64::NEG_INFINITY => other.is_finite() || *other == f64::INFINITY,
+                    obj => obj <= *other,
+                }
+            }
             (Self::String(obj), Content::String(other)) => obj <= other,
             (Self::HtmlSafe(obj), Content::HtmlSafe(other)) => obj <= other,
             (Self::String(obj), Content::HtmlSafe(other)) => obj <= other,
@@ -260,18 +268,20 @@ impl PyCmp<Content<'_, '_>> for Content<'_, '_> {
             (Self::HtmlSafe(obj), Content::Py(other)) => other.le(obj).unwrap_or(false),
             (Self::Float(obj), Content::Float(other)) => obj >= other,
             (Self::Int(obj), Content::Int(other)) => obj >= other,
-            (Self::Float(obj), Content::Int(other)) => match other.to_f64() {
-                None => false,
-                Some(f64::INFINITY) => *obj == f64::INFINITY,
-                Some(f64::NEG_INFINITY) => obj.is_finite() || *obj == f64::INFINITY,
-                Some(other) => *obj >= other,
-            },
-            (Self::Int(obj), Content::Float(other)) => match obj.to_f64() {
-                None => false,
-                Some(f64::INFINITY) => other.is_finite() || *other == f64::NEG_INFINITY,
-                Some(f64::NEG_INFINITY) => *other == f64::NEG_INFINITY,
-                Some(obj) => obj >= *other,
-            },
+            (Self::Float(obj), Content::Int(other)) => {
+                match other.to_f64().expect("BigInt to f64 is always possible") {
+                    f64::INFINITY => *obj == f64::INFINITY,
+                    f64::NEG_INFINITY => obj.is_finite() || *obj == f64::INFINITY,
+                    other => *obj >= other,
+                }
+            }
+            (Self::Int(obj), Content::Float(other)) => {
+                match obj.to_f64().expect("BigInt to f64 is always possible") {
+                    f64::INFINITY => other.is_finite() || *other == f64::NEG_INFINITY,
+                    f64::NEG_INFINITY => *other == f64::NEG_INFINITY,
+                    obj => obj >= *other,
+                }
+            }
             (Self::String(obj), Content::String(other)) => obj >= other,
             (Self::HtmlSafe(obj), Content::HtmlSafe(other)) => obj >= other,
             (Self::String(obj), Content::HtmlSafe(other)) => obj >= other,
