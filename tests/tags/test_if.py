@@ -712,3 +712,69 @@ def test_variable_filter_argument_negative_number():
 
     assert django_template.render({}) == "truthy"
     assert rust_template.render({}) == "truthy"
+
+
+def test_unexpected_tag_elif():
+    template = "{% elif foo %}"
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["django"].from_string(template)
+
+    assert str(exc_info.value) == "Invalid block tag on line 1: 'elif'. Did you forget to register or load this tag?"
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["rusty"].from_string(template)
+
+    expected = """\
+  × Unexpected tag elif
+   ╭────
+ 1 │ {% elif foo %}
+   · ───────┬──────
+   ·        ╰── unexpected tag
+   ╰────
+"""
+    assert str(exc_info.value) == expected
+
+
+def test_unexpected_tag_else():
+    template = "{% else %}"
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["django"].from_string(template)
+
+    assert str(exc_info.value) == "Invalid block tag on line 1: 'else'. Did you forget to register or load this tag?"
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["rusty"].from_string(template)
+
+    expected = """\
+  × Unexpected tag else
+   ╭────
+ 1 │ {% else %}
+   · ─────┬────
+   ·      ╰── unexpected tag
+   ╰────
+"""
+    assert str(exc_info.value) == expected
+
+
+def test_unexpected_tag_endif():
+    template = "{% endif %}"
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["django"].from_string(template)
+
+    assert str(exc_info.value) == "Invalid block tag on line 1: 'endif'. Did you forget to register or load this tag?"
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["rusty"].from_string(template)
+
+    expected = """\
+  × Unexpected tag endif
+   ╭────
+ 1 │ {% endif %}
+   · ─────┬─────
+   ·      ╰── unexpected tag
+   ╰────
+"""
+    assert str(exc_info.value) == expected
