@@ -284,6 +284,20 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_variable_leading_underscorej() {
+        let template = "{% if _foo %}";
+        let parts = TagParts { at: (6, 4) };
+        let lexer = IfConditionLexer::new(template.into(), parts);
+        let tokens: Vec<_> = lexer.collect();
+
+        let foo = IfConditionToken {
+            at: (6, 4),
+            token_type: IfConditionTokenType::Atom(IfConditionAtom::Variable),
+        };
+        assert_eq!(tokens, vec![Ok(foo)]);
+    }
+
+    #[test]
     fn test_lex_numeric() {
         let template = "{% if 5.3 %}";
         let parts = TagParts { at: (6, 3) };
