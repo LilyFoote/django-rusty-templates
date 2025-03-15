@@ -2121,4 +2121,87 @@ mod tests {
             assert!(autoescape.py_eq(&cloned, py));
         })
     }
+
+    #[test]
+    fn test_ifcondition_clone_ref() {
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let variable = TagElement::Variable(Variable { at: (7, 14) });
+            let var = IfCondition::Variable(variable);
+            let cloned = var.clone_ref(py);
+            assert_eq!(var, cloned);
+            assert!(var.py_eq(&cloned, py));
+
+            let not = IfCondition::Not(Box::new(var.clone_ref(py)));
+            let cloned = not.clone_ref(py);
+            assert_eq!(not, cloned);
+            assert!(not.py_eq(&cloned, py));
+
+            let and = IfCondition::And(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = and.clone_ref(py);
+            assert_eq!(and, cloned);
+            assert!(and.py_eq(&cloned, py));
+
+            let or = IfCondition::Or(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = or.clone_ref(py);
+            assert_eq!(or, cloned);
+            assert!(or.py_eq(&cloned, py));
+
+            let equal = IfCondition::Equal(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = equal.clone_ref(py);
+            assert_eq!(equal, cloned);
+            assert!(equal.py_eq(&cloned, py));
+
+            let not_equal = IfCondition::NotEqual(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = not_equal.clone_ref(py);
+            assert_eq!(not_equal, cloned);
+            assert!(not_equal.py_eq(&cloned, py));
+
+            let less_than = IfCondition::LessThan(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = less_than.clone_ref(py);
+            assert_eq!(less_than, cloned);
+            assert!(less_than.py_eq(&cloned, py));
+
+            let greater_than =
+                IfCondition::GreaterThan(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = greater_than.clone_ref(py);
+            assert_eq!(greater_than, cloned);
+            assert!(greater_than.py_eq(&cloned, py));
+
+            let less_equal =
+                IfCondition::LessThanEqual(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = less_equal.clone_ref(py);
+            assert_eq!(less_equal, cloned);
+            assert!(less_equal.py_eq(&cloned, py));
+
+            let greater_equal =
+                IfCondition::GreaterThanEqual(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = greater_equal.clone_ref(py);
+            assert_eq!(greater_equal, cloned);
+            assert!(greater_equal.py_eq(&cloned, py));
+
+            let in_ = IfCondition::In(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = in_.clone_ref(py);
+            assert_eq!(in_, cloned);
+            assert!(in_.py_eq(&cloned, py));
+
+            let not_in = IfCondition::NotIn(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = not_in.clone_ref(py);
+            assert_eq!(not_in, cloned);
+            assert!(not_in.py_eq(&cloned, py));
+
+            let is = IfCondition::Is(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = is.clone_ref(py);
+            assert_eq!(is, cloned);
+            assert!(is.py_eq(&cloned, py));
+
+            let is_not = IfCondition::IsNot(Box::new((var.clone_ref(py), not.clone_ref(py))));
+            let cloned = is_not.clone_ref(py);
+            assert_eq!(is_not, cloned);
+            assert!(is_not.py_eq(&cloned, py));
+
+            assert!(!and.py_eq(&or, py));
+        })
+    }
 }
