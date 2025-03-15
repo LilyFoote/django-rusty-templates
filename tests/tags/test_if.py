@@ -44,7 +44,6 @@ def test_render_elif():
     assert rust_template.render() == "bar"
 
 
-
 def test_render_if_true_literal():
     template = "{% if True %}foo{% endif %}"
     django_template = engines["django"].from_string(template)
@@ -451,6 +450,28 @@ def test_no_operator():
  1 │ {% if foo bar spam %}{{ foo }}{% endif %}
    ·           ─┬─
    ·            ╰── here
+   ╰────
+"""
+    assert str(exc_info.value) == expected
+
+
+def test_invalid_token():
+    template = "{% if foo 'bar %}{{ foo }}{% endif %}"
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["django"].from_string(template)
+
+    assert str(exc_info.value) == "Could not parse the remainder: ''bar' from ''bar'"
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["rusty"].from_string(template)
+
+    expected = """\
+  × Expected a complete string literal
+   ╭────
+ 1 │ {% if foo 'bar %}{{ foo }}{% endif %}
+   ·           ──┬─
+   ·             ╰── here
    ╰────
 """
     assert str(exc_info.value) == expected
