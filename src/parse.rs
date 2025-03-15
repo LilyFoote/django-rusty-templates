@@ -2236,4 +2236,18 @@ mod tests {
             assert_eq!(var.binding_power(), None);
         })
     }
+
+    #[test]
+    fn test_variable_token_build_condition() {
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let var_token = IfConditionTokenType::Variable;
+
+            let var_1 = IfCondition::Variable(TagElement::Variable(Variable { at: (7, 14) }));
+            let var_2 = IfCondition::Variable(TagElement::Variable(Variable { at: (20, 35) }));
+
+            assert_eq!(var_token.build_condition(var_1, var_2), None);
+        })
+    }
 }
