@@ -130,6 +130,16 @@ impl<'t> Lexer<'t> {
                 return Token::text(at);
             }
             Some(n) => {
+                // This can be removed if https://code.djangoproject.com/ticket/35899 lands
+                match self.rest.find("\n") {
+                    Some(newline) if newline < n => {
+                        let at = (self.byte, newline + 1);
+                        self.byte += newline + 1;
+                        self.rest = &self.rest[newline + 1..];
+                        return Token::text(at);
+                    }
+                    _ => {}
+                }
                 let len = n + end_str.len();
                 self.rest = &self.rest[len..];
                 len

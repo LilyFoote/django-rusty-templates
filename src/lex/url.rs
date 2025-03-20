@@ -2,9 +2,11 @@ use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 use unicode_xid::UnicodeXID;
 
-use crate::lex::common::{LexerError, lex_numeric, lex_text, lex_translated};
+use crate::lex::common::{
+    LexerError, lex_numeric, lex_text, lex_translated, lex_variable, text_content_at,
+    translated_text_content_at,
+};
 use crate::lex::tag::TagParts;
-use crate::lex::{END_TRANSLATE_LEN, QUOTE_LEN, START_TRANSLATE_LEN};
 use crate::types::TemplateString;
 
 #[derive(Debug, PartialEq)]
@@ -27,18 +29,8 @@ impl UrlToken {
         match self.token_type {
             UrlTokenType::Variable => self.at,
             UrlTokenType::Numeric => self.at,
-            UrlTokenType::Text => {
-                let (start, len) = self.at;
-                let start = start + QUOTE_LEN;
-                let len = len - 2 * QUOTE_LEN;
-                (start, len)
-            }
-            UrlTokenType::TranslatedText => {
-                let (start, len) = self.at;
-                let start = start + START_TRANSLATE_LEN + QUOTE_LEN;
-                let len = len - START_TRANSLATE_LEN - END_TRANSLATE_LEN - 2 * QUOTE_LEN;
-                (start, len)
-            }
+            UrlTokenType::Text => text_content_at(self.at),
+            UrlTokenType::TranslatedText => translated_text_content_at(self.at),
         }
     }
 }
@@ -140,29 +132,9 @@ impl<'t> UrlLexer<'t> {
         &mut self,
         kwarg: Option<(usize, usize)>,
     ) -> Result<UrlToken, UrlLexerError> {
-        let mut in_text = None;
-        let mut end = 0;
-        for c in self.rest.chars() {
-            match c {
-                '"' => match in_text {
-                    None => in_text = Some('"'),
-                    Some('"') => in_text = None,
-                    _ => {}
-                },
-                '\'' => match in_text {
-                    None => in_text = Some('\''),
-                    Some('\'') => in_text = None,
-                    _ => {}
-                },
-                _ if in_text.is_some() => {}
-                c if !c.is_xid_continue() && c != '.' && c != '|' && c != ':' => break,
-                _ => {}
-            }
-            end += 1;
-        }
-        let at = (self.byte, end);
-        self.rest = &self.rest[end..];
-        self.byte += end;
+        let (at, byte, rest) = lex_variable(self.byte, self.rest);
+        self.rest = rest;
+        self.byte = byte;
         Ok(UrlToken {
             token_type: UrlTokenType::Variable,
             at,

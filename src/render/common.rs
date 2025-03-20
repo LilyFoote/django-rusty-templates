@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use pyo3::prelude::*;
 
@@ -87,13 +87,13 @@ impl Resolve for Argument {
                 Some(content) => content,
                 None => {
                     let key = template.content(variable.at).to_string();
-                    let context: HashMap<&String, &Bound<'py, PyAny>> = context
+                    let context: BTreeMap<&String, &Bound<'py, PyAny>> = context
                         .context
                         .iter()
                         .map(|(k, v)| (k, v.bind(py)))
                         .collect();
                     let object = format!("{:?}", context);
-                    return Err(RenderError::VariableDoesNotExist {
+                    return Err(RenderError::ArgumentDoesNotExist {
                         key,
                         object,
                         key_at: variable.at.into(),
@@ -146,6 +146,8 @@ impl Render for TokenTree {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::collections::HashMap;
 
     use pyo3::types::{PyDict, PyList, PyString};
 

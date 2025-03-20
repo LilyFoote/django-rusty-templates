@@ -10,7 +10,7 @@ pub mod django_rusty_templates {
     use pyo3::import_exception_bound;
     use pyo3::intern;
     use pyo3::prelude::*;
-    use pyo3::types::{PyDict, PyString};
+    use pyo3::types::{PyBool, PyDict, PyString};
 
     use crate::loaders::{AppDirsLoader, CachedLoader, FileSystemLoader, Loader};
     use crate::parse::{Parser, TokenTree};
@@ -300,9 +300,18 @@ pub mod django_rusty_templates {
             context: Option<Bound<'_, PyDict>>,
             request: Option<Bound<'_, PyAny>>,
         ) -> PyResult<String> {
+            let mut base_context = HashMap::from([
+                ("None".to_string(), py.None()),
+                ("True".to_string(), PyBool::new(py, true).to_owned().into()),
+                ("False".to_string(), PyBool::new(py, false).to_owned().into()),
+            ]);
             let context = match context {
-                Some(context) => context.extract()?,
-                None => HashMap::new(),
+                Some(context) => {
+                    let new_context: HashMap<_, _> = context.extract()?;
+                    base_context.extend(new_context.into_iter());
+                    base_context
+                }
+                None => base_context,
             };
             let request = request.map(|request| request.unbind());
             let mut context = Context {

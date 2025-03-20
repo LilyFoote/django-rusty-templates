@@ -22,6 +22,15 @@ impl PyRenderError {
 #[derive(Error, Debug, Diagnostic, PartialEq, Eq)]
 pub enum RenderError {
     #[error("Failed lookup for key [{key}] in {object}")]
+    ArgumentDoesNotExist {
+        key: String,
+        object: String,
+        #[label("key")]
+        key_at: SourceSpan,
+        #[label("{object}")]
+        object_at: Option<SourceSpan>,
+    },
+    #[error("Failed lookup for key [{key}] in {object}")]
     VariableDoesNotExist {
         key: String,
         object: String,

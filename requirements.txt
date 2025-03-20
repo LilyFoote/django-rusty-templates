@@ -1,4 +1,6 @@
+black
 django
+hypothesis
 maturin
 pytest
 pytest-django
