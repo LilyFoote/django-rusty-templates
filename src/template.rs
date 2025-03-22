@@ -162,7 +162,7 @@ pub mod django_rusty_templates {
                 None => {
                     let filesystem_loader =
                         Loader::FileSystem(FileSystemLoader::new(dirs.clone(), encoding));
-                    let appdirs_loader = Loader::AppDirs(AppDirsLoader {});
+                    let appdirs_loader = Loader::AppDirs(AppDirsLoader::new(encoding));
                     let loaders = if app_dirs {
                         vec![filesystem_loader, appdirs_loader]
                     } else {
