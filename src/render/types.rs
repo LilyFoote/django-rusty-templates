@@ -63,6 +63,17 @@ fn resolve_python<'t>(value: Bound<'_, PyAny>, context: &Context) -> PyResult<Co
     ))
 }
 
+#[derive(Debug, FromPyObject)]
+pub enum PythonTypes<'py> {
+    #[pyo3(transparent)]
+    Int(BigInt),
+    #[pyo3(transparent)]
+    Float(f64),
+    #[pyo3(transparent)]
+    String(String),
+    CatchAll(Bound<'py, PyAny>),
+}
+
 #[derive(Debug, IntoPyObject)]
 pub enum Content<'t, 'py> {
     Py(Bound<'py, PyAny>),

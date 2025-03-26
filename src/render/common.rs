@@ -7,6 +7,7 @@ use super::types::{Content, Context};
 use super::{Render, RenderResult, Resolve, ResolveResult};
 use crate::error::RenderError;
 use crate::parse::{TagElement, TokenTree};
+use crate::render::types::PythonTypes;
 use crate::types::Argument;
 use crate::types::ArgumentType;
 use crate::types::TemplateString;
@@ -54,7 +55,14 @@ impl Resolve for Variable {
             };
             object_at.1 += key_at.1 + 1;
         }
-        Ok(Some(Content::Py(variable)))
+        let python_type: PythonTypes = variable.extract()?;
+        let content = match python_type {
+            PythonTypes::Int(data) => Content::Int(data),
+            PythonTypes::Float(data) => Content::Float(data),
+            PythonTypes::String(data) => Content::String(Cow::Owned(data)),
+            PythonTypes::CatchAll(data) => Content::Py(data),
+        };
+        Ok(Some(content))
     }
 }
 
