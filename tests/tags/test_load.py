@@ -19,7 +19,7 @@ def test_load_missing():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["django"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
 'missing_filters' is not a registered tag library. Must be one of:
 cache
 custom_filters
@@ -30,11 +30,12 @@ no_filters
 no_tags
 static
 tz"""
+    assert str(exc_info.value) == expected
 
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × 'missing_filters' is not a registered tag library.
    ╭────
  1 │ {% load missing_filters %}
@@ -52,6 +53,7 @@ tz"""
         static
         tz
 """
+    assert str(exc_info.value) == expected
 
 
 def test_load_missing_filter():
@@ -60,12 +62,13 @@ def test_load_missing_filter():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["django"].from_string(template)
 
-    assert str(exc_info.value) == "'missing' is not a valid tag or filter in tag library 'custom_filters'"
+    expected = "'missing' is not a valid tag or filter in tag library 'custom_filters'"
+    assert str(exc_info.value) == expected
 
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × 'missing' is not a valid tag or filter in tag library 'custom_filters'
    ╭────
  1 │ {% load missing from custom_filters %}
@@ -74,6 +77,7 @@ def test_load_missing_filter():
    ·            ╰── tag or filter
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_unknown_filter():
@@ -87,7 +91,7 @@ def test_unknown_filter():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × Invalid filter: 'bar'
    ╭────
  1 │ {{ foo|bar }}
@@ -95,6 +99,7 @@ def test_unknown_filter():
    ·         ╰── here
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_load_no_filters():

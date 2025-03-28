@@ -25,7 +25,7 @@ def test_escape_with_argument():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × escape filter does not take an argument
    ╭────
  1 │ {{ html|escape:invalid }}
@@ -33,6 +33,7 @@ def test_escape_with_argument():
    ·                   ╰── unexpected argument
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_escape_missing_value():

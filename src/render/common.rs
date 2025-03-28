@@ -1,10 +1,10 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use pyo3::prelude::*;
 
 use super::types::{Content, Context};
-use super::{Render, RenderResult, Resolve, ResolveResult};
+use super::{Evaluate, Render, RenderResult, Resolve, ResolveFailures, ResolveResult};
 use crate::error::RenderError;
 use crate::parse::{TagElement, TokenTree};
 use crate::types::Argument;
@@ -19,6 +19,7 @@ impl Resolve for Variable {
         py: Python<'py>,
         template: TemplateString<'t>,
         context: &mut Context,
+        failures: ResolveFailures,
     ) -> ResolveResult<'t, 'py> {
         let mut parts = self.parts(template);
         let (first, mut object_at) = parts.next().expect("Variable names cannot be empty");
@@ -36,13 +37,18 @@ impl Resolve for Variable {
                         let int = match part.parse::<usize>() {
                             Ok(int) => int,
                             Err(_) => {
-                                return Err(RenderError::VariableDoesNotExist {
-                                    key: part.to_string(),
-                                    object: variable.str()?.to_string(),
-                                    key_at: key_at.into(),
-                                    object_at: Some(object_at.into()),
-                                }
-                                .into());
+                                return match failures {
+                                    ResolveFailures::Raise => {
+                                        Err(RenderError::VariableDoesNotExist {
+                                            key: part.to_string(),
+                                            object: variable.str()?.to_string(),
+                                            key_at: key_at.into(),
+                                            object_at: Some(object_at.into()),
+                                        }
+                                        .into())
+                                    }
+                                    ResolveFailures::IgnoreVariableDoesNotExist => Ok(None),
+                                };
                             }
                         };
                         match variable.get_item(int) {
@@ -64,6 +70,7 @@ impl Resolve for Text {
         _py: Python<'py>,
         template: TemplateString<'t>,
         context: &mut Context,
+        _failures: ResolveFailures,
     ) -> ResolveResult<'t, 'py> {
         let resolved = Cow::Borrowed(template.content(self.at));
         Ok(Some(match context.autoescape {
@@ -79,29 +86,32 @@ impl Resolve for Argument {
         py: Python<'py>,
         template: TemplateString<'t>,
         context: &mut Context,
+        failures: ResolveFailures,
     ) -> ResolveResult<'t, 'py> {
         Ok(Some(match &self.argument_type {
-            ArgumentType::Text(text) => return text.resolve(py, template, context),
+            ArgumentType::Text(text) => return text.resolve(py, template, context, failures),
             ArgumentType::TranslatedText(_text) => todo!(),
-            ArgumentType::Variable(variable) => match variable.resolve(py, template, context)? {
-                Some(content) => content,
-                None => {
-                    let key = template.content(variable.at).to_string();
-                    let context: HashMap<&String, &Bound<'py, PyAny>> = context
-                        .context
-                        .iter()
-                        .map(|(k, v)| (k, v.bind(py)))
-                        .collect();
-                    let object = format!("{:?}", context);
-                    return Err(RenderError::VariableDoesNotExist {
-                        key,
-                        object,
-                        key_at: variable.at.into(),
-                        object_at: None,
+            ArgumentType::Variable(variable) => {
+                match variable.resolve(py, template, context, failures)? {
+                    Some(content) => content,
+                    None => {
+                        let key = template.content(variable.at).to_string();
+                        let context: BTreeMap<&String, &Bound<'py, PyAny>> = context
+                            .context
+                            .iter()
+                            .map(|(k, v)| (k, v.bind(py)))
+                            .collect();
+                        let object = format!("{:?}", context);
+                        return Err(RenderError::ArgumentDoesNotExist {
+                            key,
+                            object,
+                            key_at: variable.at.into(),
+                            object_at: None,
+                        }
+                        .into());
                     }
-                    .into());
                 }
-            },
+            }
             ArgumentType::Float(number) => Content::Float(*number),
             ArgumentType::Int(number) => Content::Int(number.clone()),
         }))
@@ -114,14 +124,34 @@ impl Resolve for TagElement {
         py: Python<'py>,
         template: TemplateString<'t>,
         context: &mut Context,
+        failures: ResolveFailures,
     ) -> ResolveResult<'t, 'py> {
         match self {
-            Self::Text(text) => text.resolve(py, template, context),
+            Self::Text(text) => text.resolve(py, template, context, failures),
             Self::TranslatedText(_text) => todo!(),
-            Self::Variable(variable) => variable.resolve(py, template, context),
-            Self::Filter(filter) => filter.resolve(py, template, context),
+            Self::Variable(variable) => variable.resolve(py, template, context, failures),
+            Self::Filter(filter) => filter.resolve(py, template, context, failures),
             Self::Int(int) => Ok(Some(Content::Int(int.clone()))),
             Self::Float(float) => Ok(Some(Content::Float(*float))),
+        }
+    }
+}
+
+impl Evaluate for TagElement {
+    fn evaluate(
+        &self,
+        py: Python<'_>,
+        template: TemplateString<'_>,
+        context: &mut Context,
+    ) -> Option<bool> {
+        match self.resolve(
+            py,
+            template,
+            context,
+            ResolveFailures::IgnoreVariableDoesNotExist,
+        ) {
+            Ok(inner) => inner.evaluate(py, template, context),
+            Err(_) => None,
         }
     }
 }
@@ -146,6 +176,8 @@ impl Render for TokenTree {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::collections::HashMap;
 
     use pyo3::types::{PyDict, PyList, PyString};
 

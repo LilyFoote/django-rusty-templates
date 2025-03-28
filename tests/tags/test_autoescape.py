@@ -24,7 +24,7 @@ def test_missing_argument():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × 'autoescape' tag missing an 'on' or 'off' argument.
    ╭────
  1 │ {% autoescape %}{{ html }}
@@ -32,6 +32,7 @@ def test_missing_argument():
    ·              ╰── here
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_invalid_argument():
@@ -45,7 +46,7 @@ def test_invalid_argument():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × 'autoescape' argument should be 'on' or 'off'.
    ╭────
  1 │ {% autoescape foo %}{{ html }}
@@ -53,6 +54,7 @@ def test_invalid_argument():
    ·                ╰── here
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_extra_argument():
@@ -66,7 +68,7 @@ def test_extra_argument():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × 'autoescape' tag requires exactly one argument.
    ╭────
  1 │ {% autoescape on off %}{{ html }}
@@ -74,6 +76,7 @@ def test_extra_argument():
    ·                  ╰── here
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_missing_endautoescape():
@@ -82,12 +85,15 @@ def test_missing_endautoescape():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["django"].from_string(template)
 
-    assert str(exc_info.value) == "Unclosed tag on line 1: 'autoescape'. Looking for one of: endautoescape."
+    expected = (
+        "Unclosed tag on line 1: 'autoescape'. Looking for one of: endautoescape."
+    )
+    assert str(exc_info.value) == expected
 
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × Unclosed 'autoescape' tag. Looking for one of: endautoescape
    ╭────
  1 │ {% autoescape off %}{{ html }}
@@ -95,6 +101,7 @@ def test_missing_endautoescape():
    ·           ╰── started here
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_wrong_end_tag():
@@ -103,12 +110,13 @@ def test_wrong_end_tag():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["django"].from_string(template)
 
-    assert str(exc_info.value) == "Invalid block tag on line 1: 'endverbatim', expected 'endautoescape'. Did you forget to register or load this tag?"
+    expected = "Invalid block tag on line 1: 'endverbatim', expected 'endautoescape'. Did you forget to register or load this tag?"
+    assert str(exc_info.value) == expected
 
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × Unexpected tag endverbatim, expected endautoescape
    ╭────
  1 │ {% autoescape off %}{{ html }}{% endverbatim %}{% endautoescape %}
@@ -117,6 +125,7 @@ def test_wrong_end_tag():
    ·           ╰── start tag
    ╰────
 """
+    assert str(exc_info.value) == expected
 
 
 def test_endautoescape_argument():
@@ -174,12 +183,13 @@ def test_unexpected_end_tag():
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["django"].from_string(template)
 
-    assert str(exc_info.value) == "Invalid block tag on line 1: 'endautoescape'. Did you forget to register or load this tag?"
+    expected = "Invalid block tag on line 1: 'endautoescape'. Did you forget to register or load this tag?"
+    assert str(exc_info.value) == expected
 
     with pytest.raises(TemplateSyntaxError) as exc_info:
         engines["rusty"].from_string(template)
 
-    assert str(exc_info.value) == """\
+    expected = """\
   × Unexpected tag endautoescape
    ╭────
  1 │ {% endautoescape %}
@@ -187,3 +197,4 @@ def test_unexpected_end_tag():
    ·          ╰── unexpected tag
    ╰────
 """
+    assert str(exc_info.value) == expected
