@@ -12,7 +12,7 @@ use crate::filters::{
 };
 use crate::parse::Filter;
 use crate::render::types::{Content, Context};
-use crate::render::{Resolve, ResolveResult};
+use crate::render::{Resolve, ResolveFailures, ResolveResult};
 use crate::types::TemplateString;
 use regex::Regex;
 use unicode_normalization::UnicodeNormalization;
@@ -59,8 +59,9 @@ impl Resolve for Filter {
         py: Python<'py>,
         template: TemplateString<'t>,
         context: &mut Context,
+        failures: ResolveFailures,
     ) -> ResolveResult<'t, 'py> {
-        let left = self.left.resolve(py, template, context)?;
+        let left = self.left.resolve(py, template, context, failures)?;
         let result = match &self.filter {
             FilterType::Add(filter) => filter.resolve(left, py, template, context),
             FilterType::AddSlashes(filter) => filter.resolve(left, py, template, context),
@@ -121,7 +122,7 @@ impl ResolveFilter for AddFilter {
         };
         let right = self
             .argument
-            .resolve(py, template, context)?
+            .resolve(py, template, context, ResolveFailures::Raise)?
             .expect("missing argument in context should already have raised");
         match (variable.to_bigint(), right.to_bigint()) {
             (Some(variable), Some(right)) => Ok(Some(Content::Int(variable + right))),
@@ -172,7 +173,9 @@ impl ResolveFilter for DefaultFilter {
     ) -> ResolveResult<'t, 'py> {
         let content = match variable {
             Some(left) => Some(left),
-            None => self.argument.resolve(py, template, context)?,
+            None => self
+                .argument
+                .resolve(py, template, context, ResolveFailures::Raise)?,
         };
         Ok(content)
     }
@@ -217,7 +220,7 @@ impl ResolveFilter for ExternalFilter {
         context: &mut Context,
     ) -> ResolveResult<'t, 'py> {
         let arg = match &self.argument {
-            Some(arg) => arg.resolve(py, template, context)?,
+            Some(arg) => arg.resolve(py, template, context, ResolveFailures::Raise)?,
             None => None,
         };
         let filter = self.filter.bind(py);

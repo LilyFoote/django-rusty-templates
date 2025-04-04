@@ -234,6 +234,7 @@ dependencies = [
  "html-escape",
  "miette",
  "num-bigint",
+ "num-traits",
  "pyo3",
  "quickcheck",
  "regex",

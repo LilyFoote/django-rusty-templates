@@ -46,7 +46,7 @@ def test_autoescape_not_string():
 def test_autoescape_invalid_str_method():
     class Broken:
         def __str__(self):
-            1/0
+            1 / 0
 
     broken = Broken()
     template = "{{ broken }}"
@@ -62,7 +62,7 @@ def test_autoescape_invalid_str_method():
 def test_autoescape_invalid_html_method():
     class Broken(str):
         def __html__(self):
-            1/0
+            1 / 0
 
     broken = Broken("")
     template = "{{ broken }}"
