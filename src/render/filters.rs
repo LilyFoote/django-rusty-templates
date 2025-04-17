@@ -332,56 +332,60 @@ impl ResolveFilter for YesnoFilter {
     ) -> ResolveResult<'t, 'py> {
         let left = match variable {
             Some(var) => var,
-            None => return Err(PyRenderError::Render(RenderError::new(
-                "yesno filter requires a variable to operate on",
-            ))),
+            None => return Err(PyRenderError::RenderError(RenderError::VariableDoesNotExist {
+                key: "yesno".to_string(),
+                object: "filter".to_string(),
+                key_at: (0, 0).into(),
+                object_at: None,
+            })),
         };
-        
-        // Extract the value from the left content
-        let left_value = left.extract_pyobject(py);
         
         // Handle the case with a custom mapping argument
         if let Some(arg) = &self.argument {
             // Get mapping string from the argument
-            let mapping_obj = arg.argument_type.render(py, template, context)?;
-            let mapping = match mapping_obj.extract::<String>(py) {
+            let arg_content = arg.resolve(py, template, context)?
+                .expect("missing argument in context should already have raised");
+            let mapping = match arg_content.to_py(py)?.extract::<String>() {
                 Ok(s) => s,
                 Err(_) => {
-                    return Err(PyRenderError::Render(RenderError::new(
-                        &format!("yesno filter requires a comma-separated string as the argument")
-                    )));
+                    return Err(PyRenderError::RenderError(RenderError::VariableDoesNotExist {
+                        key: "yesno argument".to_string(),
+                        object: "string".to_string(),
+                        key_at: (0, 0).into(),
+                        object_at: None,
+                    }));
                 }
             };
 
             let parts: Vec<&str> = mapping.split(',').collect();
             
             // Handle None values
-            if left_value.is_none(py) {
+            if left.to_py(py)?.is_none() {
                 // Return "maybe" if provided, otherwise fallback to "no"
                 let result = if parts.len() >= 3 {
                     parts[2].to_string()
                 } else {
                     parts.get(1).unwrap_or(&"no").to_string()
                 };
-                return Ok(Content::Text(result));
+                return Ok(Some(Content::String(Cow::Owned(result))));
             }
             
             // Handle True/False values
-            match left_value.is_truthy(py) {
-                Ok(true) => Ok(Content::Text(parts.get(0).unwrap_or(&"yes").to_string())),
-                Ok(false) => Ok(Content::Text(parts.get(1).unwrap_or(&"no").to_string())),
-                Err(e) => Err(PyRenderError::Python(e)),
+            match left.to_py(py)?.is_truthy() {
+                Ok(true) => Ok(Some(Content::String(Cow::Owned(parts.get(0).unwrap_or(&"yes").to_string())))),
+                Ok(false) => Ok(Some(Content::String(Cow::Owned(parts.get(1).unwrap_or(&"no").to_string())))),
+                Err(e) => Err(PyRenderError::PyErr(e)),
             }
         } else {
             // Default mapping without an argument
-            if left_value.is_none(py) {
-                return Ok(Content::Text("maybe".to_string()));
+            if left.to_py(py)?.is_none() {
+                return Ok(Some(Content::String(Cow::Owned("maybe".to_string()))));
             }
             
-            match left_value.is_truthy(py) {
-                Ok(true) => Ok(Content::Text("yes".to_string())),
-                Ok(false) => Ok(Content::Text("no".to_string())),
-                Err(e) => Err(PyRenderError::Python(e)),
+            match left.to_py(py)?.is_truthy() {
+                Ok(true) => Ok(Some(Content::String(Cow::Owned("yes".to_string())))),
+                Ok(false) => Ok(Some(Content::String(Cow::Owned("no".to_string())))),
+                Err(e) => Err(PyRenderError::PyErr(e)),
             }
         }
     }
