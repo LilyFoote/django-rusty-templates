@@ -383,8 +383,8 @@ impl ResolveFilter for YesnoFilter {
             }
             
             match left.to_py(py)?.is_truthy() {
-                Ok(true) => Ok(Some(Content::String(Cow::Owned("yes".to_string())))),
-                Ok(false) => Ok(Some(Content::String(Cow::Owned("no".to_string())))),
+                Ok(true) => Ok(Some(Content::String(Cow::Borrowed("yes")))),
+                Ok(false) => Ok(Some(Content::String(Cow::Borrowed("no")))),
                 Err(e) => Err(PyRenderError::PyErr(e)),
             }
         }
