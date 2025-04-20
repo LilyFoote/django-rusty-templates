@@ -379,7 +379,7 @@ impl ResolveFilter for YesnoFilter {
         } else {
             // Default mapping without an argument
             if left.to_py(py)?.is_none() {
-                return Ok(Some(Content::String(Cow::Owned("maybe".to_string()))));
+                return Ok(Some(Content::String(Cow::Borrowed("maybe"))));
             }
             
             match left.to_py(py)?.is_truthy() {
