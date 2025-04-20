@@ -87,9 +87,3 @@ pub struct SlugifyFilter;
 pub struct YesnoFilter {
     pub argument: Option<Argument>,
 }
-
-impl YesnoFilter {
-    pub fn new(argument: Option<Argument>) -> Self {
-        Self { argument }
-    }
-}
