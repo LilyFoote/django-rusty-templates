@@ -119,10 +119,7 @@ impl Filter {
                 Some(right) => return Err(unexpected_argument("slugify", right)),
                 None => FilterType::Slugify(SlugifyFilter),
             },
-            "yesno" => match right {
-                Some(right) => FilterType::Yesno(YesnoFilter { argument: Some(right) }),
-                None => FilterType::Yesno(YesnoFilter { argument: None }),
-            },
+            "yesno" => FilterType::Yesno(YesnoFilter { argument: right }),
             external => {
                 let external = match parser.external_filters.get(external) {
                     Some(external) => external.clone().unbind(),
