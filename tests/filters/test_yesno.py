@@ -85,4 +85,4 @@ class YesNoTests(SimpleTestCase):
         # Test with non-zero number (which is truthy)
         template = Template("{{ var|yesno }}")
         rendered = template.render(Context({"var": 1}))
-        self.assertEqual(rendered, "yes") 
+        self.assertEqual(rendered, "yes")
