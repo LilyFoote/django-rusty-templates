@@ -15,6 +15,7 @@ pub enum FilterType {
     Lower(LowerFilter),
     Safe(SafeFilter),
     Slugify(SlugifyFilter),
+    Upper(UpperFilter),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -81,3 +82,6 @@ pub struct SafeFilter;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SlugifyFilter;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct UpperFilter;

@@ -8,7 +8,7 @@ use pyo3::types::PyType;
 
 use crate::filters::{
     AddFilter, AddSlashesFilter, CapfirstFilter, DefaultFilter, EscapeFilter, ExternalFilter,
-    FilterType, LowerFilter, SafeFilter, SlugifyFilter,
+    FilterType, LowerFilter, SafeFilter, SlugifyFilter, UpperFilter,
 };
 use crate::parse::Filter;
 use crate::render::types::{Content, Context};
@@ -72,6 +72,7 @@ impl Resolve for Filter {
             FilterType::Lower(filter) => filter.resolve(left, py, template, context),
             FilterType::Safe(filter) => filter.resolve(left, py, template, context),
             FilterType::Slugify(filter) => filter.resolve(left, py, template, context),
+            FilterType::Upper(filter) => filter.resolve(left, py, template, context),
         };
         result
     }
@@ -322,10 +323,30 @@ impl ResolveFilter for SlugifyFilter {
     }
 }
 
+impl ResolveFilter for UpperFilter {
+    fn resolve<'t, 'py>(
+        &self,
+        variable: Option<Content<'t, 'py>>,
+        _py: Python<'py>,
+        _template: TemplateString<'t>,
+        context: &mut Context,
+    ) -> ResolveResult<'t, 'py> {
+        let content = match variable {
+            Some(content) => Some(
+                content
+                    .resolve_string(context)?
+                    .map_content(|content| Cow::Owned(content.to_uppercase())),
+            ),
+            None => "".as_content(),
+        };
+        Ok(content)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::filters::{AddSlashesFilter, DefaultFilter, LowerFilter};
+    use crate::filters::{AddSlashesFilter, DefaultFilter, LowerFilter, UpperFilter};
     use crate::parse::TagElement;
     use crate::render::Render;
     use crate::template::django_rusty_templates::{EngineData, Template};
@@ -798,6 +819,55 @@ mod tests {
 
             let rendered = lower.render(py, template, &mut context).unwrap();
             assert_eq!(rendered, "bryony");
+        })
+    }
+
+    #[test]
+    fn test_render_filter_upper() {
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let name = PyString::new(py, "Foo").into_any();
+            let context = HashMap::from([("name".to_string(), name.unbind())]);
+            let mut context = Context {
+                context,
+                request: None,
+                autoescape: false,
+            };
+            let template = TemplateString("{{ name|upper }}");
+            let variable = Variable::new((3, 4));
+            let filter = Filter {
+                at: (8, 5),
+                left: TagElement::Variable(variable),
+                filter: FilterType::Upper(UpperFilter),
+            };
+
+            let rendered = filter.render(py, template, &mut context).unwrap();
+            assert_eq!(rendered, "FOO");
+        })
+    }
+
+    #[test]
+    fn test_render_filter_upper_missing_left() {
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let context = HashMap::new();
+            let mut context = Context {
+                context,
+                request: None,
+                autoescape: false,
+            };
+            let template = TemplateString("{{ name|upper }}");
+            let variable = Variable::new((3, 4));
+            let filter = Filter {
+                at: (8, 5),
+                left: TagElement::Variable(variable),
+                filter: FilterType::Upper(UpperFilter),
+            };
+
+            let rendered = filter.render(py, template, &mut context).unwrap();
+            assert_eq!(rendered, "");
         })
     }
 }
