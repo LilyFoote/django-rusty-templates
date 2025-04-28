@@ -8,7 +8,7 @@ use pyo3::types::PyType;
 
 use crate::filters::{
     AddFilter, AddSlashesFilter, CapfirstFilter, DefaultFilter, EscapeFilter, ExternalFilter,
-    FilterType, LowerFilter, SafeFilter, SlugifyFilter,
+    FilterType, LowerFilter, SafeFilter, SlugifyFilter, YesnoFilter,
 };
 use crate::parse::Filter;
 use crate::render::types::{Content, Context};
@@ -16,6 +16,8 @@ use crate::render::{Resolve, ResolveFailures, ResolveResult};
 use crate::types::TemplateString;
 use regex::Regex;
 use unicode_normalization::UnicodeNormalization;
+use crate::error::RenderError;
+use crate::render::PyRenderError;
 
 // Used for replacing all non-word and non-spaces with an empty string
 static NON_WORD_RE: LazyLock<Regex> =
@@ -72,6 +74,7 @@ impl Resolve for Filter {
             FilterType::Lower(filter) => filter.resolve(left, py, template, context),
             FilterType::Safe(filter) => filter.resolve(left, py, template, context),
             FilterType::Slugify(filter) => filter.resolve(left, py, template, context),
+            FilterType::Yesno(filter) => filter.resolve(left, py, template, context),
         };
         result
     }
@@ -319,6 +322,75 @@ impl ResolveFilter for SlugifyFilter {
             None => "".as_content(),
         };
         Ok(content)
+    }
+}
+
+impl ResolveFilter for YesnoFilter {
+    fn resolve<'t, 'py>(
+        &self,
+        variable: Option<Content<'t, 'py>>,
+        py: Python<'py>,
+        template: TemplateString<'t>,
+        context: &mut Context,
+    ) -> ResolveResult<'t, 'py> {
+        let left = match variable {
+            Some(var) => var,
+            None => return Err(PyRenderError::RenderError(RenderError::VariableDoesNotExist {
+                key: "yesno".to_string(),
+                object: "filter".to_string(),
+                key_at: (0, 0).into(),
+                object_at: None,
+            })),
+        };
+        
+        // Handle the case with a custom mapping argument
+        if let Some(arg) = &self.argument {
+            // Get mapping string from the argument
+            let arg_content = arg.resolve(py, template, context)?
+                .expect("missing argument in context should already have raised");
+            let mapping = match arg_content.to_py(py)?.extract::<String>() {
+                Ok(s) => s,
+                Err(_) => {
+                    return Err(PyRenderError::RenderError(RenderError::VariableDoesNotExist {
+                        key: "yesno argument".to_string(),
+                        object: "string".to_string(),
+                        key_at: (0, 0).into(),
+                        object_at: None,
+                    }));
+                }
+            };
+
+            let parts: Vec<&str> = mapping.split(',').collect();
+            
+            // Handle None values
+            if left.to_py(py)?.is_none() {
+                // Return "maybe" if provided, otherwise fallback to "no"
+                let result = if parts.len() >= 3 {
+                    parts[2].to_string()
+                } else {
+                    parts.get(1).unwrap_or(&"no").to_string()
+                };
+                return Ok(Some(Content::String(Cow::Owned(result))));
+            }
+            
+            // Handle True/False values
+            match left.to_py(py)?.is_truthy() {
+                Ok(true) => Ok(Some(Content::String(Cow::Owned(parts.get(0).unwrap_or(&"yes").to_string())))),
+                Ok(false) => Ok(Some(Content::String(Cow::Owned(parts.get(1).unwrap_or(&"no").to_string())))),
+                Err(e) => Err(PyRenderError::PyErr(e)),
+            }
+        } else {
+            // Default mapping without an argument
+            if left.to_py(py)?.is_none() {
+                return Ok(Some(Content::String(Cow::Borrowed("maybe"))));
+            }
+            
+            match left.to_py(py)?.is_truthy() {
+                Ok(true) => Ok(Some(Content::String(Cow::Borrowed("yes")))),
+                Ok(false) => Ok(Some(Content::String(Cow::Borrowed("no")))),
+                Err(e) => Err(PyRenderError::PyErr(e)),
+            }
+        }
     }
 }
 
@@ -798,6 +870,80 @@ mod tests {
 
             let rendered = lower.render(py, template, &mut context).unwrap();
             assert_eq!(rendered, "bryony");
+        })
+    }
+
+    #[test]
+    fn test_render_filter_yesno_default() {
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let engine = EngineData::empty();
+            
+            // Test with true value
+            let template_string = "{{ value|yesno }}".to_string();
+            let context = PyDict::new(py);
+            context.set_item("value", true).unwrap();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
+            let result = template.render(py, Some(context), None).unwrap();
+            assert_eq!(result, "yes");
+            
+            // Test with false value
+            let template_string = "{{ value|yesno }}".to_string();
+            let context = PyDict::new(py);
+            context.set_item("value", false).unwrap();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
+            let result = template.render(py, Some(context), None).unwrap();
+            assert_eq!(result, "no");
+            
+            // Test with None value
+            let template_string = "{{ value|yesno }}".to_string();
+            let context = PyDict::new(py);
+            context.set_item("value", py.None()).unwrap();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
+            let result = template.render(py, Some(context), None).unwrap();
+            assert_eq!(result, "maybe");
+        })
+    }
+    
+    #[test]
+    fn test_render_filter_yesno_custom() {
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let engine = EngineData::empty();
+            
+            // Test with true value
+            let template_string = "{{ value|yesno:'yeah,no,maybe' }}".to_string();
+            let context = PyDict::new(py);
+            context.set_item("value", true).unwrap();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
+            let result = template.render(py, Some(context), None).unwrap();
+            assert_eq!(result, "yeah");
+            
+            // Test with false value
+            let template_string = "{{ value|yesno:'yeah,no,maybe' }}".to_string();
+            let context = PyDict::new(py);
+            context.set_item("value", false).unwrap();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
+            let result = template.render(py, Some(context), None).unwrap();
+            assert_eq!(result, "no");
+            
+            // Test with None value
+            let template_string = "{{ value|yesno:'yeah,no,maybe' }}".to_string();
+            let context = PyDict::new(py);
+            context.set_item("value", py.None()).unwrap();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
+            let result = template.render(py, Some(context), None).unwrap();
+            assert_eq!(result, "maybe");
+            
+            // Test with None value and no "maybe" option
+            let template_string = "{{ value|yesno:'yeah,no' }}".to_string();
+            let context = PyDict::new(py);
+            context.set_item("value", py.None()).unwrap();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
+            let result = template.render(py, Some(context), None).unwrap();
+            assert_eq!(result, "no");
         })
     }
 }

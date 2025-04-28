@@ -18,6 +18,7 @@ use crate::filters::FilterType;
 use crate::filters::LowerFilter;
 use crate::filters::SafeFilter;
 use crate::filters::SlugifyFilter;
+use crate::filters::YesnoFilter;
 use crate::lex::START_TAG_LEN;
 use crate::lex::autoescape::{AutoescapeEnabled, AutoescapeError, lex_autoescape_argument};
 use crate::lex::common::LexerError;
@@ -123,6 +124,7 @@ impl Filter {
                 Some(right) => return Err(unexpected_argument("slugify", right)),
                 None => FilterType::Slugify(SlugifyFilter),
             },
+            "yesno" => FilterType::Yesno(YesnoFilter { argument: right }),
             external => {
                 let external = match parser.external_filters.get(external) {
                     Some(external) => external.clone().unbind(),
