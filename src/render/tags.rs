@@ -6,7 +6,7 @@ use pyo3::exceptions::PyAttributeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyList, PyNone};
 
-use super::types::{Content, Context};
+use super::types::{Content, ContentString, Context};
 use super::{Evaluate, Render, RenderResult, Resolve, ResolveFailures, ResolveResult};
 use crate::error::PyRenderError;
 use crate::parse::{IfCondition, Tag, Url};
@@ -45,7 +45,7 @@ impl Resolve for Url {
     ) -> ResolveResult<'t, 'py> {
         let view_name = match self.view_name.resolve(py, template, context, failures)? {
             Some(view_name) => view_name,
-            None => Content::String(Cow::Borrowed("")),
+            None => Content::String(ContentString::String(Cow::Borrowed(""))),
         };
         let urls = py.import("django.urls")?;
         let reverse = urls.getattr("reverse")?;
@@ -92,9 +92,7 @@ impl Evaluate for Content<'_, '_> {
     ) -> Option<bool> {
         Some(match self {
             Self::Py(obj) => obj.is_truthy().unwrap_or(false),
-            Self::String(s) => !s.is_empty(),
-            Self::HtmlSafe(s) => !s.is_empty(),
-            Self::HtmlUnsafe(s) => !s.is_empty(),
+            Self::String(s) => !s.as_raw().is_empty(),
             Self::Float(f) => *f != 0.0,
             Self::Int(n) => *n != BigInt::ZERO,
         })
@@ -123,12 +121,10 @@ impl PyCmp<Content<'_, '_>> for Content<'_, '_> {
             (Self::Py(obj), Content::Py(other)) => obj.eq(other).unwrap_or(false),
             (Self::Py(obj), Content::Float(other)) => obj.eq(other).unwrap_or(false),
             (Self::Py(obj), Content::Int(other)) => obj.eq(other).unwrap_or(false),
-            (Self::Py(obj), Content::String(other)) => obj.eq(other).unwrap_or(false),
-            (Self::Py(obj), Content::HtmlSafe(other)) => obj.eq(other).unwrap_or(false),
+            (Self::Py(obj), Content::String(other)) => obj.eq(other.as_raw()).unwrap_or(false),
             (Self::Float(obj), Content::Py(other)) => other.eq(obj).unwrap_or(false),
             (Self::Int(obj), Content::Py(other)) => other.eq(obj).unwrap_or(false),
-            (Self::String(obj), Content::Py(other)) => other.eq(obj).unwrap_or(false),
-            (Self::HtmlSafe(obj), Content::Py(other)) => other.eq(obj).unwrap_or(false),
+            (Self::String(obj), Content::Py(other)) => other.eq(obj.as_raw()).unwrap_or(false),
             (Self::Float(obj), Content::Float(other)) => obj == other,
             (Self::Int(obj), Content::Int(other)) => obj == other,
             (Self::Float(obj), Content::Int(other)) => {
@@ -145,10 +141,7 @@ impl PyCmp<Content<'_, '_>> for Content<'_, '_> {
                     obj => obj == *other,
                 }
             }
-            (Self::String(obj), Content::String(other)) => obj == other,
-            (Self::HtmlSafe(obj), Content::HtmlSafe(other)) => obj == other,
-            (Self::String(obj), Content::HtmlSafe(other)) => obj == other,
-            (Self::HtmlSafe(obj), Content::String(other)) => obj == other,
+            (Self::String(obj), Content::String(other)) => obj.as_raw() == other.as_raw(),
             _ => false,
         }
     }
@@ -158,12 +151,10 @@ impl PyCmp<Content<'_, '_>> for Content<'_, '_> {
             (Self::Py(obj), Content::Py(other)) => obj.lt(other).unwrap_or(false),
             (Self::Py(obj), Content::Float(other)) => obj.lt(other).unwrap_or(false),
             (Self::Py(obj), Content::Int(other)) => obj.lt(other).unwrap_or(false),
-            (Self::Py(obj), Content::String(other)) => obj.lt(other).unwrap_or(false),
-            (Self::Py(obj), Content::HtmlSafe(other)) => obj.lt(other).unwrap_or(false),
+            (Self::Py(obj), Content::String(other)) => obj.lt(other.as_raw()).unwrap_or(false),
             (Self::Float(obj), Content::Py(other)) => other.gt(obj).unwrap_or(false),
             (Self::Int(obj), Content::Py(other)) => other.gt(obj).unwrap_or(false),
-            (Self::String(obj), Content::Py(other)) => other.gt(obj).unwrap_or(false),
-            (Self::HtmlSafe(obj), Content::Py(other)) => other.gt(obj).unwrap_or(false),
+            (Self::String(obj), Content::Py(other)) => other.gt(obj.as_raw()).unwrap_or(false),
             (Self::Float(obj), Content::Float(other)) => obj < other,
             (Self::Int(obj), Content::Int(other)) => obj < other,
             (Self::Float(obj), Content::Int(other)) => {
@@ -180,10 +171,7 @@ impl PyCmp<Content<'_, '_>> for Content<'_, '_> {
                     obj => obj < *other,
                 }
             }
-            (Self::String(obj), Content::String(other)) => obj < other,
-            (Self::HtmlSafe(obj), Content::HtmlSafe(other)) => obj < other,
-            (Self::String(obj), Content::HtmlSafe(other)) => obj < other,
-            (Self::HtmlSafe(obj), Content::String(other)) => obj < other,
+            (Self::String(obj), Content::String(other)) => obj.as_raw() < other.as_raw(),
             _ => false,
         }
     }
@@ -193,12 +181,10 @@ impl PyCmp<Content<'_, '_>> for Content<'_, '_> {
             (Self::Py(obj), Content::Py(other)) => obj.gt(other).unwrap_or(false),
             (Self::Py(obj), Content::Float(other)) => obj.gt(other).unwrap_or(false),
             (Self::Py(obj), Content::Int(other)) => obj.gt(other).unwrap_or(false),
-            (Self::Py(obj), Content::String(other)) => obj.gt(other).unwrap_or(false),
-            (Self::Py(obj), Content::HtmlSafe(other)) => obj.gt(other).unwrap_or(false),
+            (Self::Py(obj), Content::String(other)) => obj.gt(other.as_raw()).unwrap_or(false),
             (Self::Float(obj), Content::Py(other)) => other.lt(obj).unwrap_or(false),
             (Self::Int(obj), Content::Py(other)) => other.lt(obj).unwrap_or(false),
-            (Self::String(obj), Content::Py(other)) => other.lt(obj).unwrap_or(false),
-            (Self::HtmlSafe(obj), Content::Py(other)) => other.lt(obj).unwrap_or(false),
+            (Self::String(obj), Content::Py(other)) => other.lt(obj.as_raw()).unwrap_or(false),
             (Self::Float(obj), Content::Float(other)) => obj > other,
             (Self::Int(obj), Content::Int(other)) => obj > other,
             (Self::Float(obj), Content::Int(other)) => {
@@ -215,10 +201,7 @@ impl PyCmp<Content<'_, '_>> for Content<'_, '_> {
                     obj => obj > *other,
                 }
             }
-            (Self::String(obj), Content::String(other)) => obj > other,
-            (Self::HtmlSafe(obj), Content::HtmlSafe(other)) => obj > other,
-            (Self::String(obj), Content::HtmlSafe(other)) => obj > other,
-            (Self::HtmlSafe(obj), Content::String(other)) => obj > other,
+            (Self::String(obj), Content::String(other)) => obj.as_raw() > other.as_raw(),
             _ => false,
         }
     }
@@ -228,12 +211,10 @@ impl PyCmp<Content<'_, '_>> for Content<'_, '_> {
             (Self::Py(obj), Content::Py(other)) => obj.le(other).unwrap_or(false),
             (Self::Py(obj), Content::Float(other)) => obj.le(other).unwrap_or(false),
             (Self::Py(obj), Content::Int(other)) => obj.le(other).unwrap_or(false),
-            (Self::Py(obj), Content::String(other)) => obj.le(other).unwrap_or(false),
-            (Self::Py(obj), Content::HtmlSafe(other)) => obj.le(other).unwrap_or(false),
+            (Self::Py(obj), Content::String(other)) => obj.le(other.as_raw()).unwrap_or(false),
             (Self::Float(obj), Content::Py(other)) => other.ge(obj).unwrap_or(false),
             (Self::Int(obj), Content::Py(other)) => other.ge(obj).unwrap_or(false),
-            (Self::String(obj), Content::Py(other)) => other.ge(obj).unwrap_or(false),
-            (Self::HtmlSafe(obj), Content::Py(other)) => other.ge(obj).unwrap_or(false),
+            (Self::String(obj), Content::Py(other)) => other.ge(obj.as_raw()).unwrap_or(false),
             (Self::Float(obj), Content::Float(other)) => obj <= other,
             (Self::Int(obj), Content::Int(other)) => obj <= other,
             (Self::Float(obj), Content::Int(other)) => {
@@ -250,10 +231,7 @@ impl PyCmp<Content<'_, '_>> for Content<'_, '_> {
                     obj => obj <= *other,
                 }
             }
-            (Self::String(obj), Content::String(other)) => obj <= other,
-            (Self::HtmlSafe(obj), Content::HtmlSafe(other)) => obj <= other,
-            (Self::String(obj), Content::HtmlSafe(other)) => obj <= other,
-            (Self::HtmlSafe(obj), Content::String(other)) => obj <= other,
+            (Self::String(obj), Content::String(other)) => obj.as_raw() <= other.as_raw(),
             _ => false,
         }
     }
@@ -263,12 +241,10 @@ impl PyCmp<Content<'_, '_>> for Content<'_, '_> {
             (Self::Py(obj), Content::Py(other)) => obj.ge(other).unwrap_or(false),
             (Self::Py(obj), Content::Float(other)) => obj.ge(other).unwrap_or(false),
             (Self::Py(obj), Content::Int(other)) => obj.ge(other).unwrap_or(false),
-            (Self::Py(obj), Content::String(other)) => obj.ge(other).unwrap_or(false),
-            (Self::Py(obj), Content::HtmlSafe(other)) => obj.ge(other).unwrap_or(false),
+            (Self::Py(obj), Content::String(other)) => obj.ge(other.as_raw()).unwrap_or(false),
             (Self::Float(obj), Content::Py(other)) => other.le(obj).unwrap_or(false),
             (Self::Int(obj), Content::Py(other)) => other.le(obj).unwrap_or(false),
-            (Self::String(obj), Content::Py(other)) => other.le(obj).unwrap_or(false),
-            (Self::HtmlSafe(obj), Content::Py(other)) => other.le(obj).unwrap_or(false),
+            (Self::String(obj), Content::Py(other)) => other.le(obj.as_raw()).unwrap_or(false),
             (Self::Float(obj), Content::Float(other)) => obj >= other,
             (Self::Int(obj), Content::Int(other)) => obj >= other,
             (Self::Float(obj), Content::Int(other)) => {
@@ -285,10 +261,7 @@ impl PyCmp<Content<'_, '_>> for Content<'_, '_> {
                     obj => obj >= *other,
                 }
             }
-            (Self::String(obj), Content::String(other)) => obj >= other,
-            (Self::HtmlSafe(obj), Content::HtmlSafe(other)) => obj >= other,
-            (Self::String(obj), Content::HtmlSafe(other)) => obj >= other,
-            (Self::HtmlSafe(obj), Content::String(other)) => obj >= other,
+            (Self::String(obj), Content::String(other)) => obj.as_raw() >= other.as_raw(),
             _ => false,
         }
     }
@@ -447,12 +420,8 @@ impl Contains<Option<Content<'_, '_>>> for Content<'_, '_> {
                 let obj = self.to_py(other.py()).ok()?;
                 obj.contains(other).ok()
             }
-            Some(Content::String(other))
-            | Some(Content::HtmlSafe(other))
-            | Some(Content::HtmlUnsafe(other)) => match self {
-                Self::String(obj) | Self::HtmlSafe(obj) | Self::HtmlUnsafe(obj) => {
-                    Some(obj.contains(other.as_ref()))
-                }
+            Some(Content::String(other)) => match self {
+                Self::String(obj) => Some(obj.as_raw().contains(other.as_raw().as_ref())),
                 Self::Int(_) | Self::Float(_) => None,
                 Self::Py(obj) => obj.contains(other).ok(),
             },

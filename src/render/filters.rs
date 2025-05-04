@@ -11,7 +11,7 @@ use crate::filters::{
     FilterType, LowerFilter, SafeFilter, SlugifyFilter, UpperFilter,
 };
 use crate::parse::Filter;
-use crate::render::types::{Content, Context};
+use crate::render::types::{Content, ContentString, Context};
 use crate::render::{Resolve, ResolveFailures, ResolveResult};
 use crate::types::TemplateString;
 use regex::Regex;
@@ -43,13 +43,13 @@ where
     'a: 't,
 {
     fn as_content(&'a self) -> Option<Content<'t, 'py>> {
-        Some(Content::String(Cow::Borrowed(self)))
+        Some(Content::String(ContentString::String(Cow::Borrowed(self))))
     }
 }
 
 impl<'t, 'py> IntoOwnedContent<'t, 'py> for String {
     fn into_content(self) -> Option<Content<'t, 'py>> {
-        Some(Content::String(Cow::Owned(self)))
+        Some(Content::String(ContentString::String(Cow::Owned(self))))
     }
 }
 
@@ -190,25 +190,27 @@ impl ResolveFilter for EscapeFilter {
         _template: TemplateString<'t>,
         _context: &mut Context,
     ) -> ResolveResult<'t, 'py> {
-        Ok(match variable {
-            Some(content) => match content {
-                Content::HtmlSafe(content) => Some(Content::HtmlSafe(content)),
-                Content::String(content) | Content::HtmlUnsafe(content) => {
-                    let mut encoded = String::new();
-                    encode_quoted_attribute_to_string(&content, &mut encoded);
-                    Some(Content::HtmlSafe(Cow::Owned(encoded)))
-                }
-                Content::Int(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
-                Content::Float(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
-                Content::Py(object) => {
-                    let content = object.str()?.extract::<String>()?;
-                    let mut encoded = String::new();
-                    encode_quoted_attribute_to_string(&content, &mut encoded);
-                    Some(Content::HtmlSafe(Cow::Owned(encoded)))
-                }
+        Ok(Some(Content::String(ContentString::HtmlSafe(
+            match variable {
+                Some(content) => match content {
+                    Content::String(ContentString::HtmlSafe(content)) => content,
+                    Content::String(content) => {
+                        let mut encoded = String::new();
+                        encode_quoted_attribute_to_string(content.as_raw(), &mut encoded);
+                        Cow::Owned(encoded)
+                    }
+                    Content::Int(n) => Cow::Owned(n.to_string()),
+                    Content::Float(n) => Cow::Owned(n.to_string()),
+                    Content::Py(object) => {
+                        let content = object.str()?.extract::<String>()?;
+                        let mut encoded = String::new();
+                        encode_quoted_attribute_to_string(&content, &mut encoded);
+                        Cow::Owned(encoded)
+                    }
+                },
+                None => Cow::Borrowed(""),
             },
-            None => Some(Content::HtmlSafe(Cow::Borrowed(""))),
-        })
+        ))))
     }
 }
 
@@ -261,22 +263,20 @@ impl ResolveFilter for SafeFilter {
         _template: TemplateString<'t>,
         _context: &mut Context,
     ) -> ResolveResult<'t, 'py> {
-        let content = match variable {
-            Some(content) => match content {
-                Content::HtmlSafe(content) => Some(Content::HtmlSafe(content)),
-                Content::String(content) | Content::HtmlUnsafe(content) => {
-                    Some(Content::HtmlSafe(content))
-                }
-                Content::Int(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
-                Content::Float(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
-                Content::Py(object) => {
-                    let content = object.str()?.extract::<String>()?;
-                    Some(Content::HtmlSafe(Cow::Owned(content)))
-                }
+        Ok(Some(Content::String(ContentString::HtmlSafe(
+            match variable {
+                Some(content) => match content {
+                    Content::String(content) => content.into_raw(),
+                    Content::Int(n) => Cow::Owned(n.to_string()),
+                    Content::Float(n) => Cow::Owned(n.to_string()),
+                    Content::Py(object) => {
+                        let content = object.str()?.extract::<String>()?;
+                        Cow::Owned(content)
+                    }
+                },
+                None => Cow::Borrowed(""),
             },
-            None => Some(Content::HtmlSafe(Cow::Borrowed(""))),
-        };
-        Ok(content)
+        ))))
     }
 }
 
@@ -309,16 +309,18 @@ impl ResolveFilter for SlugifyFilter {
                     #[allow(non_snake_case)]
                     let SafeData = SAFEDATA.import(py, "django.utils.safestring", "SafeData")?;
                     match content.is_instance(SafeData)? {
-                        true => Some(Content::HtmlSafe(slug)),
-                        false => Some(Content::String(slug)),
+                        true => Some(Content::String(ContentString::HtmlSafe(slug))),
+                        false => Some(Content::String(ContentString::HtmlUnsafe(slug))),
                     }
                 }
                 // Int and Float requires no slugify, we only need to turn it into a string.
-                Content::Int(content) => Some(Content::String(Cow::Owned(content.to_string()))),
-                Content::Float(content) => Some(Content::String(Cow::Owned(content.to_string()))),
-                Content::String(content) => Some(Content::String(slugify(content))),
-                Content::HtmlSafe(content) => Some(Content::HtmlSafe(slugify(content))),
-                Content::HtmlUnsafe(content) => Some(Content::HtmlUnsafe(slugify(content))),
+                Content::Int(content) => Some(Content::String(ContentString::String(Cow::Owned(
+                    content.to_string(),
+                )))),
+                Content::Float(content) => Some(Content::String(ContentString::String(
+                    Cow::Owned(content.to_string()),
+                ))),
+                Content::String(content) => Some(content.map_content(slugify)),
             },
             None => "".as_content(),
         };

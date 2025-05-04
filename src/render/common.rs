@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use pyo3::prelude::*;
 
-use super::types::{Content, Context};
+use super::types::{Content, ContentString, Context};
 use super::{Evaluate, Render, RenderResult, Resolve, ResolveFailures, ResolveResult};
 use crate::error::RenderError;
 use crate::parse::{TagElement, TokenTree};
@@ -74,10 +74,10 @@ impl Resolve for Text {
         _failures: ResolveFailures,
     ) -> ResolveResult<'t, 'py> {
         let resolved = Cow::Borrowed(template.content(self.at));
-        Ok(Some(match context.autoescape {
-            false => Content::String(resolved),
-            true => Content::HtmlSafe(resolved),
-        }))
+        Ok(Some(Content::String(match context.autoescape {
+            false => ContentString::String(resolved),
+            true => ContentString::HtmlSafe(resolved),
+        })))
     }
 }
 
