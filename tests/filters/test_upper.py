@@ -1,4 +1,5 @@
-from django.template import engines
+import pytest
+from django.template import engines, TemplateSyntaxError
 
 
 def test_upper_string():
@@ -26,5 +27,47 @@ def test_upper_integer():
 
     var = "3"
     uppered = "3"
+    assert django_template.render({"var": var}) == uppered
+    assert rust_template.render({"var": var}) == uppered
+
+def test_upper_with_argument():
+    template = "{{ var|upper:arg }}"
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["django"].from_string(template)
+
+    assert str(exc_info.value) == "upper requires 1 arguments, 2 provided"
+
+    with pytest.raises(TemplateSyntaxError) as exc_info:
+        engines["rusty"].from_string(template)
+
+    expected = """\
+  × upper filter does not take an argument
+   ╭────
+ 1 │ {{ var|upper:arg }}
+   ·              ─┬─
+   ·               ╰── unexpected argument
+   ╰────
+"""
+    assert str(exc_info.value) == expected
+
+def test_upper_unicode():
+    template = "{{ var|upper }}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    var = "\xeb"
+    uppered = "\xcb"
+    assert django_template.render({"var": var}) == uppered
+    assert rust_template.render({"var": var}) == uppered
+
+
+def test_upper_html():
+    template = "{{ var|upper }}"
+    django_template = engines["django"].from_string(template)
+    rust_template = engines["rusty"].from_string(template)
+
+    var = "<b>foo</b>"
+    uppered = "&lt;B&gt;FOO&lt;/B&gt;"
     assert django_template.render({"var": var}) == uppered
     assert rust_template.render({"var": var}) == uppered
