@@ -94,6 +94,7 @@ impl Evaluate for Content<'_, '_> {
             Self::Py(obj) => obj.is_truthy().unwrap_or(false),
             Self::String(s) => !s.is_empty(),
             Self::HtmlSafe(s) => !s.is_empty(),
+            Self::HtmlUnsafe(s) => !s.is_empty(),
             Self::Float(f) => *f != 0.0,
             Self::Int(n) => *n != BigInt::ZERO,
         })
@@ -446,8 +447,12 @@ impl Contains<Option<Content<'_, '_>>> for Content<'_, '_> {
                 let obj = self.to_py(other.py()).ok()?;
                 obj.contains(other).ok()
             }
-            Some(Content::String(other)) | Some(Content::HtmlSafe(other)) => match self {
-                Self::String(obj) | Self::HtmlSafe(obj) => Some(obj.contains(other.as_ref())),
+            Some(Content::String(other))
+            | Some(Content::HtmlSafe(other))
+            | Some(Content::HtmlUnsafe(other)) => match self {
+                Self::String(obj) | Self::HtmlSafe(obj) | Self::HtmlUnsafe(obj) => {
+                    Some(obj.contains(other.as_ref()))
+                }
                 Self::Int(_) | Self::Float(_) => None,
                 Self::Py(obj) => obj.contains(other).ok(),
             },

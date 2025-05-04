@@ -193,7 +193,7 @@ impl ResolveFilter for EscapeFilter {
         Ok(match variable {
             Some(content) => match content {
                 Content::HtmlSafe(content) => Some(Content::HtmlSafe(content)),
-                Content::String(content) => {
+                Content::String(content) | Content::HtmlUnsafe(content) => {
                     let mut encoded = String::new();
                     encode_quoted_attribute_to_string(&content, &mut encoded);
                     Some(Content::HtmlSafe(Cow::Owned(encoded)))
@@ -264,7 +264,9 @@ impl ResolveFilter for SafeFilter {
         let content = match variable {
             Some(content) => match content {
                 Content::HtmlSafe(content) => Some(Content::HtmlSafe(content)),
-                Content::String(content) => Some(Content::HtmlSafe(content)),
+                Content::String(content) | Content::HtmlUnsafe(content) => {
+                    Some(Content::HtmlSafe(content))
+                }
                 Content::Int(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
                 Content::Float(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
                 Content::Py(object) => {
@@ -316,6 +318,7 @@ impl ResolveFilter for SlugifyFilter {
                 Content::Float(content) => Some(Content::String(Cow::Owned(content.to_string()))),
                 Content::String(content) => Some(Content::String(slugify(content))),
                 Content::HtmlSafe(content) => Some(Content::HtmlSafe(slugify(content))),
+                Content::HtmlUnsafe(content) => Some(Content::HtmlUnsafe(slugify(content))),
             },
             None => "".as_content(),
         };
@@ -332,11 +335,10 @@ impl ResolveFilter for UpperFilter {
         context: &mut Context,
     ) -> ResolveResult<'t, 'py> {
         let content = match variable {
-            Some(content) => Some(
-                content
-                    .resolve_string(context)?
-                    .map_content(|content| Cow::Owned(content.to_uppercase())),
-            ),
+            Some(content) => {
+                let content = content.resolve_string(context)?;
+                Some(content.map_content(|content| Cow::Owned(content.to_uppercase())))
+            }
             None => "".as_content(),
         };
         Ok(content)
