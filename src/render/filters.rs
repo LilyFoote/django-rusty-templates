@@ -163,6 +163,29 @@ impl ResolveFilter for CapfirstFilter {
     }
 }
 
+impl ResolveFilter for CenterFilter {
+    fn resolve<'t, 'py>(
+        &self,
+        variable: Option<Content<'t, 'py>>,
+        py: Python<'py>,
+        template: TemplateString<'t>,
+        context: &mut Context,
+    ) -> ResolveResult<'t, 'py> {
+        uint left, right;
+        let content = match(variable) {
+            Some(content) => Some(content),
+            None => "",
+        }
+        if self.argument % 2 == 0 {
+            let left = self.argument / 2;
+            let right = self.argument / 2;
+        } else {
+            let right = self.argument / 2;
+            let left = self.argument - right - content.chars().count();
+        }
+    }
+}
+
 impl ResolveFilter for DefaultFilter {
     fn resolve<'t, 'py>(
         &self,
