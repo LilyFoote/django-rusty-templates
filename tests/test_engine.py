@@ -52,8 +52,11 @@ def test_pathlib_dirs():
         }
     )
 
+    context = {"user": "Lily"}
+    expected = "Hello Lily!\n"
+
     template = engine.get_template("basic.txt")
-    assert template.render({"user": "Lily"}) == "Hello Lily!\n"
+    assert template.render(context) == expected
 
 
 def test_loader_priority():
