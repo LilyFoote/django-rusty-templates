@@ -7,7 +7,7 @@ use pyo3::sync::GILOnceCell;
 use pyo3::types::PyType;
 
 use crate::filters::{
-    AddFilter, AddSlashesFilter, CapfirstFilter, DefaultFilter, EscapeFilter, ExternalFilter,
+    AddFilter, AddSlashesFilter, CapfirstFilter, CenterFilter, DefaultFilter, EscapeFilter, ExternalFilter,
     FilterType, LowerFilter, SafeFilter, SlugifyFilter,
 };
 use crate::parse::Filter;
@@ -16,6 +16,8 @@ use crate::render::{Resolve, ResolveFailures, ResolveResult};
 use crate::types::TemplateString;
 use regex::Regex;
 use unicode_normalization::UnicodeNormalization;
+use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 
 // Used for replacing all non-word and non-spaces with an empty string
 static NON_WORD_RE: LazyLock<Regex> =
@@ -66,6 +68,7 @@ impl Resolve for Filter {
             FilterType::Add(filter) => filter.resolve(left, py, template, context),
             FilterType::AddSlashes(filter) => filter.resolve(left, py, template, context),
             FilterType::Capfirst(filter) => filter.resolve(left, py, template, context),
+            FilterType::Center(filter) => filter.resolve(left, py, template, context),
             FilterType::Default(filter) => filter.resolve(left, py, template, context),
             FilterType::Escape(filter) => filter.resolve(left, py, template, context),
             FilterType::External(filter) => filter.resolve(left, py, template, context),
@@ -171,18 +174,36 @@ impl ResolveFilter for CenterFilter {
         template: TemplateString<'t>,
         context: &mut Context,
     ) -> ResolveResult<'t, 'py> {
-        uint left, right;
-        let content = match(variable) {
-            Some(content) => Some(content),
-            None => "",
+        let left: usize;
+        let right: usize;
+        let arg_size: usize;
+        let content = match variable {
+            Some(content) => {
+                content.render(context)?.into_owned()
+            },
+            None => return Ok("".as_content()),
+        };
+        let arg = self
+            .argument
+            .resolve(py, template, context, ResolveFailures::Raise)?
+            .expect("missing argument in context should already have raised");
+        let arg_int = arg.to_bigint();
+        match arg_int {
+            Some(arg_int) => {
+                if arg_int < BigInt::ZERO {
+                    return Ok("".as_content());
+                }
+                arg_size = arg_int.to_usize().unwrap();
+                left = arg_size / 2;
+                right = arg_size - content.len() - left;
+            }
+            None => {
+                return Ok("".as_content());
+            }
         }
-        if self.argument % 2 == 0 {
-            let left = self.argument / 2;
-            let right = self.argument / 2;
-        } else {
-            let right = self.argument / 2;
-            let left = self.argument - right - content.chars().count();
-        }
+        let string_left = " ".repeat(left);
+        let string_right = " ".repeat(right);
+        Ok((string_left + &content + &string_right).into_content())
     }
 }
 

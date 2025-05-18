@@ -9,6 +9,7 @@ pub enum FilterType {
     Add(AddFilter),
     AddSlashes(AddSlashesFilter),
     Capfirst(CapfirstFilter),
+    Center(CenterFilter),
     Default(DefaultFilter),
     Escape(EscapeFilter),
     External(ExternalFilter),
@@ -33,6 +34,11 @@ impl AddFilter {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CapfirstFilter;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CenterFilter {
+    pub argument: Argument,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DefaultFilter {
