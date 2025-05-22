@@ -190,13 +190,13 @@ impl ResolveFilter for CenterFilter {
         let arg_int = arg.to_bigint();
         match arg_int {
             Some(arg_int) => {
-                if arg_int < BigInt::ZERO {
-                    return Ok("".as_content());
-                }
                 arg_size = arg_int.to_usize().unwrap();
-                left = arg_size / 2;
+                if arg_size <= content.len() {
+                    return Ok(content.into_content());
+                }
+                left = (arg_size - content.len()) / 2;
                 right = arg_size - content.len() - left;
-            }
+            },
             None => {
                 return Ok("".as_content());
             }
@@ -369,12 +369,13 @@ impl ResolveFilter for SlugifyFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::filters::{AddSlashesFilter, DefaultFilter, LowerFilter};
+    use crate::filters::{AddSlashesFilter, CenterFilter, DefaultFilter, LowerFilter};
     use crate::parse::TagElement;
     use crate::render::Render;
     use crate::template::django_rusty_templates::{EngineData, Template};
     use crate::types::{Argument, ArgumentType, Text, Variable};
 
+    use pyo3::panic;
     use pyo3::types::{PyDict, PyString};
     static MARK_SAFE: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
 
@@ -652,6 +653,44 @@ mod tests {
 
             let error_string = format!("{error}");
             assert!(error_string.contains("capfirst filter does not take an argument"));
+        })
+    }
+
+    #[test]
+    fn test_render_filter_center() {
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let engine = EngineData::empty();
+            let template_string = "{{ var|center:'11' }}".to_string();
+            let context = PyDict::new(py);
+            context.set_item("var", "hello").unwrap();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
+            let result = template.render(py, Some(context), None).unwrap();
+
+            assert_eq!(result, "   hello   ");
+
+            let context = PyDict::new(py);
+            context.set_item("var", "django").unwrap();
+            let template_string = "{{ var|center:'15' }}".to_string();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
+            let result = template.render(py, Some(context), None).unwrap();
+
+            assert_eq!(result, "    django     ");
+
+            let context = PyDict::new(py);
+            context.set_item("var", "django").unwrap();
+            let template_string = "{{ var|center:'1' }}".to_string();
+            let template = Template::new_from_string(py, template_string, &engine).unwrap();
+            let result = template.render(py, Some(context), None).unwrap();
+
+            assert_eq!(result, "django");
+
+    //         // let template_string = "{{ var|center }}".to_string();
+    //         // let error = Template::new_from_string(py, template_string, &engine).unwrap_err();
+
+    //         // let error_string = format!("{error}");
+    //         // assert!(error_string.contains("center filter requires an argument"));
         })
     }
 

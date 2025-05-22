@@ -40,6 +40,12 @@ pub struct CenterFilter {
     pub argument: Argument,
 }
 
+impl CenterFilter {
+    pub fn new(argument: Argument) -> Self {
+        Self { argument }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct DefaultFilter {
     pub argument: Argument,
