@@ -194,8 +194,8 @@ impl ResolveFilter for CenterFilter {
                 if arg_size <= content.len() {
                     return Ok(content.into_content());
                 }
-                left = (arg_size - content.len()) / 2;
-                right = arg_size - content.len() - left;
+                right = (arg_size - content.len()) / 2;
+                left = arg_size - content.len() - right;
             },
             None => {
                 return Ok("".as_content());
@@ -676,7 +676,7 @@ mod tests {
             let template = Template::new_from_string(py, template_string, &engine).unwrap();
             let result = template.render(py, Some(context), None).unwrap();
 
-            assert_eq!(result, "    django     ");
+            assert_eq!(result, "     django    ");
 
             let context = PyDict::new(py);
             context.set_item("var", "django").unwrap();
