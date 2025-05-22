@@ -1,4 +1,7 @@
+from pathlib import Path
+
 import pytest
+from django.conf import settings
 from django.template.engine import Engine
 from django.template.library import InvalidTemplateLibrary
 
@@ -38,3 +41,17 @@ def test_import_libraries_no_register():
         )
 
     assert str(exc_info.value) == expected
+
+
+def test_pathlib_dirs():
+    engine = RustyTemplates(
+        {
+            "NAME": "rust",
+            "OPTIONS": {},
+            "DIRS": [Path(settings.BASE_DIR) / "templates"],
+            "APP_DIRS": False,
+        }
+    )
+
+    template = engine.get_template("basic.txt")
+    assert template.render({"user": "Lily"}) == "Hello Lily!\n"

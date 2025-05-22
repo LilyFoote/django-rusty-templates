@@ -8,10 +8,10 @@ use pyo3::types::PyType;
 
 use crate::filters::{
     AddFilter, AddSlashesFilter, CapfirstFilter, CenterFilter, DefaultFilter, EscapeFilter, ExternalFilter,
-    FilterType, LowerFilter, SafeFilter, SlugifyFilter,
+    FilterType, LowerFilter, SafeFilter, SlugifyFilter, UpperFilter,
 };
 use crate::parse::Filter;
-use crate::render::types::{Content, Context};
+use crate::render::types::{Content, ContentString, Context};
 use crate::render::{Resolve, ResolveFailures, ResolveResult};
 use crate::types::TemplateString;
 use regex::Regex;
@@ -45,13 +45,13 @@ where
     'a: 't,
 {
     fn as_content(&'a self) -> Option<Content<'t, 'py>> {
-        Some(Content::String(Cow::Borrowed(self)))
+        Some(Content::String(ContentString::String(Cow::Borrowed(self))))
     }
 }
 
 impl<'t, 'py> IntoOwnedContent<'t, 'py> for String {
     fn into_content(self) -> Option<Content<'t, 'py>> {
-        Some(Content::String(Cow::Owned(self)))
+        Some(Content::String(ContentString::String(Cow::Owned(self))))
     }
 }
 
@@ -75,6 +75,7 @@ impl Resolve for Filter {
             FilterType::Lower(filter) => filter.resolve(left, py, template, context),
             FilterType::Safe(filter) => filter.resolve(left, py, template, context),
             FilterType::Slugify(filter) => filter.resolve(left, py, template, context),
+            FilterType::Upper(filter) => filter.resolve(left, py, template, context),
         };
         result
     }
@@ -233,25 +234,27 @@ impl ResolveFilter for EscapeFilter {
         _template: TemplateString<'t>,
         _context: &mut Context,
     ) -> ResolveResult<'t, 'py> {
-        Ok(match variable {
-            Some(content) => match content {
-                Content::HtmlSafe(content) => Some(Content::HtmlSafe(content)),
-                Content::String(content) => {
-                    let mut encoded = String::new();
-                    encode_quoted_attribute_to_string(&content, &mut encoded);
-                    Some(Content::HtmlSafe(Cow::Owned(encoded)))
-                }
-                Content::Int(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
-                Content::Float(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
-                Content::Py(object) => {
-                    let content = object.str()?.extract::<String>()?;
-                    let mut encoded = String::new();
-                    encode_quoted_attribute_to_string(&content, &mut encoded);
-                    Some(Content::HtmlSafe(Cow::Owned(encoded)))
-                }
+        Ok(Some(Content::String(ContentString::HtmlSafe(
+            match variable {
+                Some(content) => match content {
+                    Content::String(ContentString::HtmlSafe(content)) => content,
+                    Content::String(content) => {
+                        let mut encoded = String::new();
+                        encode_quoted_attribute_to_string(content.as_raw(), &mut encoded);
+                        Cow::Owned(encoded)
+                    }
+                    Content::Int(n) => Cow::Owned(n.to_string()),
+                    Content::Float(n) => Cow::Owned(n.to_string()),
+                    Content::Py(object) => {
+                        let content = object.str()?.extract::<String>()?;
+                        let mut encoded = String::new();
+                        encode_quoted_attribute_to_string(&content, &mut encoded);
+                        Cow::Owned(encoded)
+                    }
+                },
+                None => Cow::Borrowed(""),
             },
-            None => Some(Content::HtmlSafe(Cow::Borrowed(""))),
-        })
+        ))))
     }
 }
 
@@ -304,20 +307,20 @@ impl ResolveFilter for SafeFilter {
         _template: TemplateString<'t>,
         _context: &mut Context,
     ) -> ResolveResult<'t, 'py> {
-        let content = match variable {
-            Some(content) => match content {
-                Content::HtmlSafe(content) => Some(Content::HtmlSafe(content)),
-                Content::String(content) => Some(Content::HtmlSafe(content)),
-                Content::Int(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
-                Content::Float(n) => Some(Content::HtmlSafe(Cow::Owned(n.to_string()))),
-                Content::Py(object) => {
-                    let content = object.str()?.extract::<String>()?;
-                    Some(Content::HtmlSafe(Cow::Owned(content)))
-                }
+        Ok(Some(Content::String(ContentString::HtmlSafe(
+            match variable {
+                Some(content) => match content {
+                    Content::String(content) => content.into_raw(),
+                    Content::Int(n) => Cow::Owned(n.to_string()),
+                    Content::Float(n) => Cow::Owned(n.to_string()),
+                    Content::Py(object) => {
+                        let content = object.str()?.extract::<String>()?;
+                        Cow::Owned(content)
+                    }
+                },
+                None => Cow::Borrowed(""),
             },
-            None => Some(Content::HtmlSafe(Cow::Borrowed(""))),
-        };
-        Ok(content)
+        ))))
     }
 }
 
@@ -350,16 +353,38 @@ impl ResolveFilter for SlugifyFilter {
                     #[allow(non_snake_case)]
                     let SafeData = SAFEDATA.import(py, "django.utils.safestring", "SafeData")?;
                     match content.is_instance(SafeData)? {
-                        true => Some(Content::HtmlSafe(slug)),
-                        false => Some(Content::String(slug)),
+                        true => Some(Content::String(ContentString::HtmlSafe(slug))),
+                        false => Some(Content::String(ContentString::HtmlUnsafe(slug))),
                     }
                 }
                 // Int and Float requires no slugify, we only need to turn it into a string.
-                Content::Int(content) => Some(Content::String(Cow::Owned(content.to_string()))),
-                Content::Float(content) => Some(Content::String(Cow::Owned(content.to_string()))),
-                Content::String(content) => Some(Content::String(slugify(content))),
-                Content::HtmlSafe(content) => Some(Content::HtmlSafe(slugify(content))),
+                Content::Int(content) => Some(Content::String(ContentString::String(Cow::Owned(
+                    content.to_string(),
+                )))),
+                Content::Float(content) => Some(Content::String(ContentString::String(
+                    Cow::Owned(content.to_string()),
+                ))),
+                Content::String(content) => Some(content.map_content(slugify)),
             },
+            None => "".as_content(),
+        };
+        Ok(content)
+    }
+}
+
+impl ResolveFilter for UpperFilter {
+    fn resolve<'t, 'py>(
+        &self,
+        variable: Option<Content<'t, 'py>>,
+        _py: Python<'py>,
+        _template: TemplateString<'t>,
+        context: &mut Context,
+    ) -> ResolveResult<'t, 'py> {
+        let content = match variable {
+            Some(content) => {
+                let content = content.resolve_string(context)?;
+                Some(content.map_content(|content| Cow::Owned(content.to_uppercase())))
+            }
             None => "".as_content(),
         };
         Ok(content)
@@ -369,7 +394,7 @@ impl ResolveFilter for SlugifyFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::filters::{AddSlashesFilter, CenterFilter, DefaultFilter, LowerFilter};
+    use crate::filters::{AddSlashesFilter, CenterFilter, DefaultFilter, LowerFilter, UpperFilter};
     use crate::parse::TagElement;
     use crate::render::Render;
     use crate::template::django_rusty_templates::{EngineData, Template};
@@ -685,12 +710,6 @@ mod tests {
             let result = template.render(py, Some(context), None).unwrap();
 
             assert_eq!(result, "django");
-
-    //         // let template_string = "{{ var|center }}".to_string();
-    //         // let error = Template::new_from_string(py, template_string, &engine).unwrap_err();
-
-    //         // let error_string = format!("{error}");
-    //         // assert!(error_string.contains("center filter requires an argument"));
         })
     }
 
@@ -881,6 +900,55 @@ mod tests {
 
             let rendered = lower.render(py, template, &mut context).unwrap();
             assert_eq!(rendered, "bryony");
+        })
+    }
+
+    #[test]
+    fn test_render_filter_upper() {
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let name = PyString::new(py, "Foo").into_any();
+            let context = HashMap::from([("name".to_string(), name.unbind())]);
+            let mut context = Context {
+                context,
+                request: None,
+                autoescape: false,
+            };
+            let template = TemplateString("{{ name|upper }}");
+            let variable = Variable::new((3, 4));
+            let filter = Filter {
+                at: (8, 5),
+                left: TagElement::Variable(variable),
+                filter: FilterType::Upper(UpperFilter),
+            };
+
+            let rendered = filter.render(py, template, &mut context).unwrap();
+            assert_eq!(rendered, "FOO");
+        })
+    }
+
+    #[test]
+    fn test_render_filter_upper_missing_left() {
+        pyo3::prepare_freethreaded_python();
+
+        Python::with_gil(|py| {
+            let context = HashMap::new();
+            let mut context = Context {
+                context,
+                request: None,
+                autoescape: false,
+            };
+            let template = TemplateString("{{ name|upper }}");
+            let variable = Variable::new((3, 4));
+            let filter = Filter {
+                at: (8, 5),
+                left: TagElement::Variable(variable),
+                filter: FilterType::Upper(UpperFilter),
+            };
+
+            let rendered = filter.render(py, template, &mut context).unwrap();
+            assert_eq!(rendered, "");
         })
     }
 }

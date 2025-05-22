@@ -19,6 +19,7 @@ use crate::filters::FilterType;
 use crate::filters::LowerFilter;
 use crate::filters::SafeFilter;
 use crate::filters::SlugifyFilter;
+use crate::filters::UpperFilter;
 use crate::lex::START_TAG_LEN;
 use crate::lex::autoescape::{AutoescapeEnabled, AutoescapeError, lex_autoescape_argument};
 use crate::lex::common::LexerError;
@@ -36,6 +37,7 @@ use crate::types::Argument;
 use crate::types::ArgumentType;
 use crate::types::TemplateString;
 use crate::types::Text;
+use crate::types::TranslatedText;
 use crate::types::Variable;
 
 impl ArgumentToken {
@@ -53,7 +55,7 @@ impl ArgumentToken {
                     },
                 },
                 ArgumentTokenType::TranslatedText => {
-                    ArgumentType::TranslatedText(Text::new(self.content_at()))
+                    ArgumentType::TranslatedText(TranslatedText::new(self.content_at()))
                 }
             },
         })
@@ -127,6 +129,10 @@ impl Filter {
             "slugify" => match right {
                 Some(right) => return Err(unexpected_argument("slugify", right)),
                 None => FilterType::Slugify(SlugifyFilter),
+            },
+            "upper" => match right {
+                Some(right) => return Err(unexpected_argument("upper", right)),
+                None => FilterType::Upper(UpperFilter),
             },
             external => {
                 let external = match parser.external_filters.get(external) {
@@ -1227,7 +1233,7 @@ mod tests {
             let nodes = parser.parse().unwrap();
 
             let foo = TagElement::Variable(Variable { at: (3, 3) });
-            let baz = Text::new((14, 3));
+            let baz = TranslatedText::new((14, 3));
             let external = get_external_filter(&nodes[0]);
             assert!(external.is_none(py));
             let bar = TokenTree::Filter(Box::new(Filter {

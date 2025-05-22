@@ -100,7 +100,7 @@ pub mod django_rusty_templates {
 
     #[pyclass]
     pub struct Engine {
-        dirs: Vec<String>,
+        dirs: Vec<PathBuf>,
         app_dirs: bool,
         context_processors: Vec<String>,
         debug: bool,

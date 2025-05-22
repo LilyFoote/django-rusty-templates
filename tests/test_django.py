@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -5,10 +6,7 @@ from django.template import engines
 from django.template.exceptions import TemplateSyntaxError
 from django.template.loader import get_template
 
-
-def render(template, context, *, using):
-    template = get_template(template, using=using)
-    return template.render(context)
+from .utils import render
 
 
 def test_render_template():
@@ -25,13 +23,13 @@ def test_parse_error():
     template_dir = Path("tests/templates").absolute()
     expected = """\
   × Empty variable tag
-   ╭─[%s/parse_error.txt:1:28]
+   ╭─[%s%sparse_error.txt:1:28]
  1 │ This is an empty variable: {{ }}
    ·                            ──┬──
    ·                              ╰── here
    ╰────
 """
-    assert str(excinfo.value) == expected % template_dir
+    assert str(excinfo.value) == expected % (template_dir, os.sep)
 
 
 def test_parse_error_from_string():

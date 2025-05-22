@@ -58,6 +58,17 @@ impl Text {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TranslatedText {
+    pub at: (usize, usize),
+}
+
+impl TranslatedText {
+    pub fn new(at: (usize, usize)) -> Self {
+        Self { at }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Variable {
     pub at: (usize, usize),
 }
@@ -81,7 +92,7 @@ impl<'t> Variable {
 pub enum ArgumentType {
     Variable(Variable),
     Text(Text),
-    TranslatedText(Text),
+    TranslatedText(TranslatedText),
     Int(BigInt),
     Float(f64),
 }

@@ -16,10 +16,11 @@ pub struct Context {
     pub autoescape: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, IntoPyObject)]
 pub enum ContentString<'t> {
     String(Cow<'t, str>),
     HtmlSafe(Cow<'t, str>),
+    HtmlUnsafe(Cow<'t, str>),
 }
 
 #[allow(clippy::needless_lifetimes)] // https://github.com/rust-lang/rust-clippy/issues/13923
@@ -28,14 +29,32 @@ impl<'t, 'py> ContentString<'t> {
         match self {
             Self::String(content) => content,
             Self::HtmlSafe(content) => content,
+            Self::HtmlUnsafe(content) => Cow::Owned(encode_quoted_attribute(&content).to_string()),
+        }
+    }
+
+    pub fn as_raw(&self) -> &Cow<'t, str> {
+        match self {
+            Self::String(content) => content,
+            Self::HtmlSafe(content) => content,
+            Self::HtmlUnsafe(content) => content,
+        }
+    }
+
+    pub fn into_raw(self) -> Cow<'t, str> {
+        match self {
+            Self::String(content) => content,
+            Self::HtmlSafe(content) => content,
+            Self::HtmlUnsafe(content) => content,
         }
     }
 
     pub fn map_content(self, f: impl FnOnce(Cow<'t, str>) -> Cow<'t, str>) -> Content<'t, 'py> {
-        match self {
-            Self::String(content) => Content::String(f(content)),
-            Self::HtmlSafe(content) => Content::HtmlSafe(f(content)),
-        }
+        Content::String(match self {
+            Self::String(content) => Self::String(f(content)),
+            Self::HtmlSafe(content) => Self::HtmlSafe(f(content)),
+            Self::HtmlUnsafe(content) => Self::HtmlUnsafe(f(content)),
+        })
     }
 }
 
@@ -51,23 +70,21 @@ fn resolve_python<'t>(value: Bound<'_, PyAny>, context: &Context) -> PyResult<Co
         true => value,
         false => value.str()?.into_any(),
     };
-    Ok(ContentString::HtmlSafe(
+    Ok(
         match value
             .getattr(intern!(py, "__html__"))
             .ok_or_isinstance_of::<PyAttributeError>(py)?
         {
-            Ok(html) => html.call0()?.extract::<String>()?,
-            Err(_) => encode_quoted_attribute(&value.str()?.extract::<String>()?).to_string(),
-        }
-        .into(),
-    ))
+            Ok(html) => ContentString::HtmlSafe(html.call0()?.extract::<String>()?.into()),
+            Err(_) => ContentString::HtmlUnsafe(value.str()?.extract::<String>()?.into()),
+        },
+    )
 }
 
 #[derive(Debug, IntoPyObject)]
 pub enum Content<'t, 'py> {
     Py(Bound<'py, PyAny>),
-    String(Cow<'t, str>),
-    HtmlSafe(Cow<'t, str>),
+    String(ContentString<'t>),
     Float(f64),
     Int(BigInt),
 }
@@ -76,8 +93,7 @@ impl<'t, 'py> Content<'t, 'py> {
     pub fn render(self, context: &Context) -> PyResult<Cow<'t, str>> {
         Ok(match self {
             Self::Py(content) => resolve_python(content, context)?.content(),
-            Self::String(content) => content,
-            Self::HtmlSafe(content) => content,
+            Self::String(content) => content.content(),
             Self::Float(content) => content.to_string().into(),
             Self::Int(content) => content.to_string().into(),
         })
@@ -85,8 +101,7 @@ impl<'t, 'py> Content<'t, 'py> {
 
     pub fn resolve_string(self, context: &Context) -> PyResult<ContentString<'t>> {
         Ok(match self {
-            Self::String(content) => ContentString::String(content),
-            Self::HtmlSafe(content) => ContentString::HtmlSafe(content),
+            Self::String(content) => content,
             Self::Float(content) => ContentString::String(content.to_string().into()),
             Self::Int(content) => ContentString::String(content.to_string().into()),
             Self::Py(content) => return resolve_python(content, context),
@@ -96,11 +111,7 @@ impl<'t, 'py> Content<'t, 'py> {
     pub fn to_bigint(&self) -> Option<BigInt> {
         match self {
             Self::Int(left) => Some(left.clone()),
-            Self::String(left) => match left.parse::<BigInt>() {
-                Ok(left) => Some(left),
-                Err(_) => None,
-            },
-            Self::HtmlSafe(left) => match left.parse::<BigInt>() {
+            Self::String(left) => match left.as_raw().parse::<BigInt>() {
                 Ok(left) => Some(left),
                 Err(_) => None,
             },
@@ -132,18 +143,24 @@ impl<'t, 'py> Content<'t, 'py> {
                 .into_pyobject(py)
                 .expect("An f64 can always be converted to a Python float.")
                 .into_any(),
-            Self::String(s) => s
-                .into_pyobject(py)
-                .expect("A string can always be converted to a Python str.")
-                .into_any(),
-            Self::HtmlSafe(s) => {
-                let string = s
+            Self::String(s) => match s {
+                ContentString::String(s) => s
                     .into_pyobject(py)
-                    .expect("A string can always be converted to a Python str.");
-                let safestring = py.import(intern!(py, "django.utils.safestring"))?;
-                let mark_safe = safestring.getattr(intern!(py, "mark_safe"))?;
-                mark_safe.call1((string,))?
-            }
+                    .expect("A string can always be converted to a Python str.")
+                    .into_any(),
+                ContentString::HtmlUnsafe(s) => s
+                    .into_pyobject(py)
+                    .expect("A string can always be converted to a Python str.")
+                    .into_any(),
+                ContentString::HtmlSafe(s) => {
+                    let string = s
+                        .into_pyobject(py)
+                        .expect("A string can always be converted to a Python str.");
+                    let safestring = py.import(intern!(py, "django.utils.safestring"))?;
+                    let mark_safe = safestring.getattr(intern!(py, "mark_safe"))?;
+                    mark_safe.call1((string,))?
+                }
+            },
         })
     }
 }

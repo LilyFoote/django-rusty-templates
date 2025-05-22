@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use pyo3::prelude::*;
 
-use super::types::{Content, Context};
+use super::types::{Content, ContentString, Context};
 use super::{Evaluate, Render, RenderResult, Resolve, ResolveFailures, ResolveResult};
 use crate::error::RenderError;
 use crate::parse::{TagElement, TokenTree};
@@ -11,6 +11,7 @@ use crate::types::Argument;
 use crate::types::ArgumentType;
 use crate::types::TemplateString;
 use crate::types::Text;
+use crate::types::TranslatedText;
 use crate::types::Variable;
 
 impl Resolve for Variable {
@@ -73,10 +74,29 @@ impl Resolve for Text {
         _failures: ResolveFailures,
     ) -> ResolveResult<'t, 'py> {
         let resolved = Cow::Borrowed(template.content(self.at));
-        Ok(Some(match context.autoescape {
-            false => Content::String(resolved),
-            true => Content::HtmlSafe(resolved),
-        }))
+        Ok(Some(Content::String(match context.autoescape {
+            false => ContentString::String(resolved),
+            true => ContentString::HtmlSafe(resolved),
+        })))
+    }
+}
+
+impl Resolve for TranslatedText {
+    fn resolve<'t, 'py>(
+        &self,
+        py: Python<'py>,
+        template: TemplateString<'t>,
+        context: &mut Context,
+        _failures: ResolveFailures,
+    ) -> ResolveResult<'t, 'py> {
+        let resolved = Cow::Borrowed(template.content(self.at));
+        let django_translation = py.import("django.utils.translation")?;
+        let get_text = django_translation.getattr("gettext")?;
+        let resolved = get_text.call1((resolved,))?.extract::<String>()?;
+        Ok(Some(Content::String(match context.autoescape {
+            false => ContentString::String(Cow::Owned(resolved)),
+            true => ContentString::HtmlSafe(Cow::Owned(resolved)),
+        })))
     }
 }
 
@@ -90,7 +110,9 @@ impl Resolve for Argument {
     ) -> ResolveResult<'t, 'py> {
         Ok(Some(match &self.argument_type {
             ArgumentType::Text(text) => return text.resolve(py, template, context, failures),
-            ArgumentType::TranslatedText(_text) => todo!(),
+            ArgumentType::TranslatedText(text) => {
+                return text.resolve(py, template, context, failures);
+            }
             ArgumentType::Variable(variable) => {
                 match variable.resolve(py, template, context, failures)? {
                     Some(content) => content,
@@ -128,7 +150,7 @@ impl Resolve for TagElement {
     ) -> ResolveResult<'t, 'py> {
         match self {
             Self::Text(text) => text.resolve(py, template, context, failures),
-            Self::TranslatedText(_text) => todo!(),
+            Self::TranslatedText(text) => text.resolve(py, template, context, failures),
             Self::Variable(variable) => variable.resolve(py, template, context, failures),
             Self::Filter(filter) => filter.resolve(py, template, context, failures),
             Self::Int(int) => Ok(Some(Content::Int(int.clone()))),

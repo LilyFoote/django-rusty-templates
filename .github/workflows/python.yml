@@ -11,14 +11,42 @@ on:
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
+        os: ["macos-latest", "ubuntu-latest", "windows-latest"]
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
+    # on Windows, make sure line-endings are consistent for test suite
+    - if: runner.os == 'Windows'
+      run: |
+        git config --global core.autocrlf false
+        git config --global core.eol lf
+
     - uses: actions/checkout@v4
+
+    - name: Install gettext for translation testing (Ubuntu)
+      if: runner.os == 'Linux'
+      run: sudo apt-get install gettext
+
+    - name: Install gettext for translation testing (macOS)
+      if: runner.os == 'macOS'
+      run: brew install gettext
+
+    - name: Install gettext for translation testing (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        LATEST_URL=$(curl -s "https://api.github.com/repos/mlocati/gettext-iconv-windows/releases/latest" |
+          grep -o 'https://github.com/mlocati/gettext-iconv-windows/releases/download/[^"]*-shared-64\.zip')
+        curl -L "$LATEST_URL" -o "$RUNNER_TEMP/gettext.zip"
+        unzip "$RUNNER_TEMP/gettext.zip" -d "$RUNNER_TEMP/gettext"
+        echo "$RUNNER_TEMP/gettext/bin" >> $GITHUB_PATH
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v3
       with:
@@ -27,30 +55,54 @@ jobs:
     - name: Install cargo-llvm-cov
       uses: taiki-e/install-action@cargo-llvm-cov
 
-    - name: Install dependencies
+    - name: Create and activate virtual environment (Unix)
+      if: runner.os != 'Windows'
       run: |
         python -m venv .venv
-        .venv/bin/python -m pip install --upgrade pip
-        .venv/bin/pip install -r requirements.txt
-        .venv/bin/pip install pytest-cov
+        echo "VIRTUAL_ENV=$(pwd)/.venv" >> $GITHUB_ENV
+        echo "$(pwd)/.venv/bin" >> $GITHUB_PATH
+
+    - name: Create and activate virtual environment (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        python -m venv .venv
+        echo "VIRTUAL_ENV=$(pwd)/.venv" >> $GITHUB_ENV
+        echo "$(pwd)/.venv/Scripts" >> $GITHUB_PATH
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+        python -m pip install pytest-cov
+
     - name: Install Django Rusty Templates
       run: |
-        source <(cargo llvm-cov show-env --export-prefix)
-        .venv/bin/maturin develop
+        cargo llvm-cov show-env --export-prefix > llvm-cov-env.sh
+        source llvm-cov-env.sh
+        maturin develop
+
+    - name: Build translation files
+      run: |
+        python -m django compilemessages
+
     - name: Lint test files
       run: |
-        .venv/bin/ruff check
+        ruff check
+
     - name: Test with pytest
       run: |
-        source <(cargo llvm-cov show-env --export-prefix)
-        .venv/bin/pytest --cov --cov-report=xml
+        cargo llvm-cov show-env --export-prefix > llvm-cov-env.sh
+        source llvm-cov-env.sh
+        pytest --cov --cov-report=xml
+
     - name: Get rust coverage report
       run: |
-        source <(cargo llvm-cov show-env --export-prefix)
+        cargo llvm-cov show-env --export-prefix > llvm-cov-env.sh
+        source llvm-cov-env.sh
         cargo llvm-cov report --codecov --output-path codecov.json
+
     - name: Upload to codecov
       uses: codecov/codecov-action@v5
       with:
         files: coverage.xml, codecov.json
         fail_ci_if_error: true
-
