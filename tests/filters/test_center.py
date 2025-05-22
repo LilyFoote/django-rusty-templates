@@ -1,6 +1,3 @@
-import pytest
-
-
 def test_center(assert_render):
     template = "{{ var|center:5 }}"
     context = {"var": "123"}
